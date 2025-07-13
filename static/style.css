@@ -14,12 +14,31 @@ body {
     flex: 1;
     padding: 20px;
 }
+#chapter_page {
+    display: flex;
+    height: 100%;
+}
+#chapter_area {
+    flex: 1;
+    padding-right: 20px;
+}
+#notes_sidebar {
+    width: 20%;
+    background: #f7f7f7;
+    padding: 10px;
+    overflow-y: auto;
+}
 #editor, #chapter_editor {
     border: 1px solid #ccc;
     min-height: 200px;
     padding: 8px;
     margin-bottom: 10px;
     background: #fff;
+}
+#chapter_editor p,
+#chapter_editor div {
+    text-indent: 2em;
+    margin: 0 0 1em 0;
 }
 .toolbar button {
     font-weight: bold;

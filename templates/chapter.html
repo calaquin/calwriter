@@ -1,40 +1,49 @@
 {% extends "layout.html" %}
 {% block title %}{{ chapter }}{% endblock %}
 {% block content %}
-<h1>{{ folder }} / {{ chapter }}</h1>
-<p><a href="/folder/{{ folder }}/{{ chapter }}/chapter.rtf" download="{{ chapter }}.rtf">Download Chapter</a></p>
-<form action="/folder/{{ folder }}/{{ chapter }}/save" method="post" onsubmit="prepareChapter()">
-  <div class="toolbar">
-    <button type="button" onclick="execCmd('bold')">B</button>
-    <button type="button" onclick="execCmd('italic')">I</button>
-    <button type="button" onclick="execCmd('underline')">U</button>
-    <button type="button" onclick="execCmd('indent')">Indent</button>
-    <button type="button" onclick="execCmd('outdent')">Outdent</button>
-    <button type="button" onclick="execCmd('insertParagraph')">Paragraph</button>
+<div id="chapter_page">
+  <div id="chapter_area">
+    <h1>{{ folder }} / {{ chapter }}</h1>
+    <p>
+      <a href="/folder/{{ folder }}/{{ chapter }}/chapter.rtf" download="{{ chapter }}.rtf">Download Chapter</a>
+    </p>
+    <form action="/folder/{{ folder }}/{{ chapter }}/save" method="post" onsubmit="prepareChapter()">
+      <div class="toolbar">
+        <button type="button" onclick="execCmd('bold')">B</button>
+        <button type="button" onclick="execCmd('italic')">I</button>
+        <button type="button" onclick="execCmd('underline')">U</button>
+        <button type="button" onclick="execCmd('indent')">Indent</button>
+        <button type="button" onclick="execCmd('outdent')">Outdent</button>
+      </div>
+      <div id="chapter_editor" contenteditable="true">{{ chapter_html|safe }}</div>
+      <input type="hidden" name="text" id="chapter_text" />
+      <p>Words: <span id="word_count">0</span></p>
+      <button type="submit">Save Chapter</button>
+    </form>
+    <form action="/folder/{{ folder }}/{{ chapter }}/delete" method="post" onsubmit="return confirm('Delete this chapter?');">
+      <button type="submit">Delete Chapter</button>
+    </form>
   </div>
-  <div id="chapter_editor" contenteditable="true">{{ chapter_html|safe }}</div>
-  <input type="hidden" name="text" id="chapter_text" />
-  <p>Words: <span id="word_count">0</span></p>
-  <button type="submit">Save Chapter</button>
-</form>
-<h2>Notes</h2>
-<ul>
-  {% for note in notes %}
-  <li><a href="/folder/{{ folder }}/{{ chapter }}/{{ note }}">{{ note }}</a></li>
-  {% endfor %}
-</ul>
-<form action="/folder/{{ folder }}/{{ chapter }}/note/create" method="post" onsubmit="prepareSubmit()">
-  <input type="text" name="title" placeholder="Note title" /><br/>
-  <div class="toolbar">
-    <button type="button" onclick="execCmd('bold')">B</button>
-    <button type="button" onclick="execCmd('italic')">I</button>
-    <button type="button" onclick="execCmd('underline')">U</button>
-    <button type="button" onclick="execCmd('indent')">Indent</button>
-    <button type="button" onclick="execCmd('outdent')">Outdent</button>
-    <button type="button" onclick="execCmd('insertParagraph')">Paragraph</button>
+  <div id="notes_sidebar">
+    <h2>Notes</h2>
+    <ul>
+      {% for note in notes %}
+      <li><a href="/folder/{{ folder }}/{{ chapter }}/{{ note }}">{{ note }}</a></li>
+      {% endfor %}
+    </ul>
+    <form action="/folder/{{ folder }}/{{ chapter }}/note/create" method="post" onsubmit="prepareSubmit()">
+      <input type="text" name="title" placeholder="Note title" /><br/>
+      <div class="toolbar">
+        <button type="button" onclick="execCmd('bold')">B</button>
+        <button type="button" onclick="execCmd('italic')">I</button>
+        <button type="button" onclick="execCmd('underline')">U</button>
+        <button type="button" onclick="execCmd('indent')">Indent</button>
+        <button type="button" onclick="execCmd('outdent')">Outdent</button>
+      </div>
+      <div id="editor" contenteditable="true"></div>
+      <input type="hidden" name="text" id="text" />
+      <button type="submit">Create Note</button>
+    </form>
   </div>
-  <div id="editor" contenteditable="true"></div>
-  <input type="hidden" name="text" id="text" />
-  <button type="submit">Create Note</button>
-</form>
+</div>
 {% endblock %}

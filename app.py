@@ -186,6 +186,20 @@ def save_chapter(folder, chapter):
     return redirect(url_for('view_chapter', folder=folder_name, chapter=chapter_name))
 
 
+@app.route('/folder/<folder>/<chapter>/delete', methods=['POST'])
+def delete_chapter(folder, chapter):
+    folder_name = safe_name(folder)
+    chapter_name = safe_name(chapter)
+    path = os.path.join(DATA_DIR, folder_name, chapter_name)
+    if os.path.isdir(path):
+        import shutil
+        shutil.rmtree(path)
+        flash('Chapter deleted')
+    else:
+        flash('Chapter not found')
+    return redirect(url_for('view_folder', folder=folder_name))
+
+
 @app.route('/folder/<folder>/<chapter>/<note>')
 def download_note(folder, chapter, note):
     folder_name = safe_name(folder)
