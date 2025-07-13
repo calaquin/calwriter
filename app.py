@@ -23,13 +23,14 @@ def rtf_wrap(text: str) -> str:
 def html_to_rtf(html: str) -> str:
     """Convert a very small subset of HTML to RTF."""
     text = html.replace('\n', '')
-    # simple replacements for bold, italics and underline
+    # simple replacements for formatting tags
     replacements = [
         (r'<strong>', r'\\b '), (r'</strong>', r'\\b0 '),
         (r'<b>', r'\\b '), (r'</b>', r'\\b0 '),
         (r'<em>', r'\\i '), (r'</em>', r'\\i0 '),
         (r'<i>', r'\\i '), (r'</i>', r'\\i0 '),
         (r'<u>', r'\\ul '), (r'</u>', r'\\ul0 '),
+        (r'<blockquote>', r'\\li720 '), (r'</blockquote>', r'\\li0 '),
         (r'<br>', r'\\line '), (r'<br/>', r'\\line '),
         (r'<div>', ''), (r'</div>', r'\\par '),
         (r'<p>', ''), (r'</p>', r'\\par ')
@@ -51,6 +52,7 @@ def rtf_to_html(rtf: str) -> str:
         (r'\\b0', '</strong>'), (r'\\b ', '<strong>'),
         (r'\\i0', '</em>'), (r'\\i ', '<em>'),
         (r'\\ul0', '</u>'), (r'\\ul ', '<u>'),
+        (r'\\li0', '</blockquote>'), (r'\\li720', '<blockquote>'),
         (r'\\line', '<br/>'), (r'\\par', '<br/>'),
     ]
     for fr, to in replacements:
@@ -61,14 +63,18 @@ def rtf_to_html(rtf: str) -> str:
 def list_chapters(folder: str):
     path = os.path.join(DATA_DIR, folder)
     if os.path.isdir(path):
-        return [c for c in os.listdir(path) if os.path.isdir(os.path.join(path, c))]
+        chapters = [c for c in os.listdir(path) if os.path.isdir(os.path.join(path, c))]
+        chapters.sort(key=lambda n: os.path.getctime(os.path.join(path, n)))
+        return chapters
     return []
 
 
 def list_notes(folder: str, chapter: str):
     path = os.path.join(DATA_DIR, folder, chapter)
     if os.path.isdir(path):
-        return [n for n in os.listdir(path) if n.endswith('.rtf') and n != 'chapter.rtf']
+        notes = [n for n in os.listdir(path) if n.endswith('.rtf') and n != 'chapter.rtf']
+        notes.sort(key=lambda n: os.path.getctime(os.path.join(path, n)))
+        return notes
     return []
 
 
@@ -79,6 +85,7 @@ app.jinja_env.globals['list_notes'] = list_notes
 @app.route('/')
 def index():
     folders = [f for f in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, f))]
+    folders.sort(key=lambda n: os.path.getctime(os.path.join(DATA_DIR, n)))
     return render_template('index.html', folders=folders)
 
 
@@ -101,7 +108,9 @@ def view_folder(folder):
         flash('Folder not found')
         return redirect(url_for('index'))
     chapters = [c for c in os.listdir(path) if os.path.isdir(os.path.join(path, c))]
+    chapters.sort(key=lambda n: os.path.getctime(os.path.join(path, n)))
     folders = [f for f in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, f))]
+    folders.sort(key=lambda n: os.path.getctime(os.path.join(DATA_DIR, n)))
     return render_template('folder.html', folder=folder_name, chapters=chapters, folders=folders)
 
 
@@ -131,8 +140,11 @@ def view_chapter(folder, chapter):
         with open(chapter_file) as f:
             chapter_html = rtf_to_html(f.read())
     notes = [n for n in os.listdir(path) if n.endswith('.rtf') and n != 'chapter.rtf']
+    notes.sort(key=lambda n: os.path.getctime(os.path.join(path, n)))
     folders = [f for f in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, f))]
+    folders.sort(key=lambda n: os.path.getctime(os.path.join(DATA_DIR, n)))
     chapters = [c for c in os.listdir(os.path.join(DATA_DIR, folder_name)) if os.path.isdir(os.path.join(DATA_DIR, folder_name, c))]
+    chapters.sort(key=lambda n: os.path.getctime(os.path.join(DATA_DIR, folder_name, n)))
     return render_template(
         'chapter.html',
         folder=folder_name,
@@ -188,7 +200,12 @@ def download_chapter_rtf(folder, chapter):
     folder_name = safe_name(folder)
     chapter_name = safe_name(chapter)
     path = os.path.join(DATA_DIR, folder_name, chapter_name)
-    return send_from_directory(path, 'chapter.rtf', as_attachment=True)
+    return send_from_directory(
+        path,
+        'chapter.rtf',
+        as_attachment=True,
+        download_name=f"{chapter_name}.rtf",
+    )
 
 
 if __name__ == '__main__':

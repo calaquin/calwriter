@@ -1,6 +1,6 @@
 # Novel Writing App
 
-A small Flask-based web application for organizing folders, chapters and notes. A sidebar file tree provides quick access to all content. Notes and chapters are saved as RTF files and can be downloaded to your local machine. The editor supports basic formatting such as bold, italics and underline.
+A small Flask-based web application for organizing folders, chapters and notes. A sidebar file tree provides quick access to all content. Notes and chapters are saved as RTF files and can be downloaded to your local machine. The editor supports basic formatting such as bold, italics, underline, indenting and paragraph breaks. A word counter updates as you type.
 
 ## Running with Docker
 

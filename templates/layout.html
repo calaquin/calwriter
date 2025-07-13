@@ -15,7 +15,6 @@
         {% for c in list_chapters(f) %}
         <li><a href="/folder/{{ f }}/{{ c }}">{{ c }}</a>
           <ul>
-            <li><a href="/folder/{{ f }}/{{ c }}/chapter.rtf">chapter.rtf</a></li>
             {% for n in list_notes(f, c) %}
             <li><a href="/folder/{{ f }}/{{ c }}/{{ n }}">{{ n }}</a></li>
             {% endfor %}
