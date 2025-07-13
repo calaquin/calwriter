@@ -1,13 +1,27 @@
 <!doctype html>
-<title>{{ folder }}</title>
-<h1>Folder: {{ folder }}</h1>
-<ul>
-  {% for chapter in chapters %}
-  <li><a href="/folder/{{ folder }}/{{ chapter }}">{{ chapter }}</a></li>
-  {% endfor %}
-</ul>
-<form action="/folder/{{ folder }}/chapter/create" method="post">
-  <input type="text" name="name" placeholder="New chapter" />
-  <button type="submit">Create Chapter</button>
-</form>
-<p><a href="/">Back</a></p>
+<html>
+<head>
+  <title>{{ folder }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <nav>
+    <ul>
+      <li><a href="/">Home</a></li>
+      {% for f in folders %}
+      <li><a href="/folder/{{ f }}">{{ f }}</a></li>
+      {% endfor %}
+    </ul>
+  </nav>
+  <h1>Folder: {{ folder }}</h1>
+  <ul>
+    {% for chapter in chapters %}
+    <li><a href="/folder/{{ folder }}/{{ chapter }}">{{ chapter }}</a></li>
+    {% endfor %}
+  </ul>
+  <form action="/folder/{{ folder }}/chapter/create" method="post">
+    <input type="text" name="name" placeholder="New chapter" />
+    <button type="submit">Create Chapter</button>
+  </form>
+</body>
+</html>

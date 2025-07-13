@@ -1,0 +1,22 @@
+body {
+    font-family: Arial, sans-serif;
+    max-width: 800px;
+    margin: auto;
+}
+nav ul {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    gap: 10px;
+}
+nav ul li {
+    display: inline;
+}
+#editor {
+    border: 1px solid #ccc;
+    min-height: 200px;
+    padding: 8px;
+}
+.toolbar button {
+    font-weight: bold;
+}

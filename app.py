@@ -1,5 +1,6 @@
 import os
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory, flash
+import re
 
 app = Flask(__name__)
 app.secret_key = 'change-this'
@@ -17,6 +18,26 @@ def safe_name(name: str) -> str:
 def rtf_wrap(text: str) -> str:
     escaped = text.replace('\n', '\\par ')
     return '{\\rtf1\\ansi\\deff0 {\\fonttbl {\\f0 Arial;}}\\f0 ' + escaped + '}'
+
+
+def html_to_rtf(html: str) -> str:
+    """Convert a very small subset of HTML to RTF."""
+    text = html.replace('\n', '')
+    # simple replacements for bold, italics and underline
+    replacements = [
+        (r'<strong>', r'\\b '), (r'</strong>', r'\\b0 '),
+        (r'<b>', r'\\b '), (r'</b>', r'\\b0 '),
+        (r'<em>', r'\\i '), (r'</em>', r'\\i0 '),
+        (r'<i>', r'\\i '), (r'</i>', r'\\i0 '),
+        (r'<u>', r'\\ul '), (r'</u>', r'\\ul0 '),
+        (r'<br>', r'\\line '), (r'<br/>', r'\\line '),
+        (r'<div>', ''), (r'</div>', r'\\par '),
+        (r'<p>', ''), (r'</p>', r'\\par ')
+    ]
+    for fr, to in replacements:
+        text = text.replace(fr, to)
+    text = re.sub(r'<[^>]+>', '', text)  # strip any other tags
+    return '{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Arial;}}\\f0 ' + text + '}'
 
 
 @app.route('/')
@@ -44,7 +65,8 @@ def view_folder(folder):
         flash('Folder not found')
         return redirect(url_for('index'))
     chapters = [c for c in os.listdir(path) if os.path.isdir(os.path.join(path, c))]
-    return render_template('folder.html', folder=folder_name, chapters=chapters)
+    folders = [f for f in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, f))]
+    return render_template('folder.html', folder=folder_name, chapters=chapters, folders=folders)
 
 
 @app.route('/folder/<folder>/chapter/create', methods=['POST'])
@@ -68,7 +90,9 @@ def view_chapter(folder, chapter):
         flash('Chapter not found')
         return redirect(url_for('view_folder', folder=folder_name))
     notes = [n for n in os.listdir(path) if n.endswith('.rtf')]
-    return render_template('chapter.html', folder=folder_name, chapter=chapter_name, notes=notes)
+    folders = [f for f in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, f))]
+    chapters = [c for c in os.listdir(os.path.join(DATA_DIR, folder_name)) if os.path.isdir(os.path.join(DATA_DIR, folder_name, c))]
+    return render_template('chapter.html', folder=folder_name, chapter=chapter_name, notes=notes, folders=folders, chapters=chapters)
 
 
 @app.route('/folder/<folder>/<chapter>/note/create', methods=['POST'])
@@ -84,7 +108,7 @@ def create_note(folder, chapter):
     os.makedirs(path, exist_ok=True)
     note_path = os.path.join(path, f"{title}.rtf")
     with open(note_path, 'w') as f:
-        f.write(rtf_wrap(text))
+        f.write(html_to_rtf(text))
     return redirect(url_for('view_chapter', folder=folder_name, chapter=chapter_name))
 
 
