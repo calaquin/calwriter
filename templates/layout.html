@@ -9,24 +9,26 @@
 <div id="sidebar">
   <a href="{{ url_for('index') }}">Home</a>
   <h2>Books</h2>
+  {% macro render_tree(path) %}
+  <li><a href="/folder/{{ path }}">{{ path.split('/')[-1] }}</a>
+    {% set subs = list_subfolders(path) %}
+    {% set chaps = list_chapters(path) %}
+    {% if subs or chaps %}
+    <ul>
+      {% for s in subs %}
+        {{ render_tree(path ~ '/' ~ s) }}
+      {% endfor %}
+      {% for c in chaps %}
+        <li><a href="/folder/{{ path }}/{{ c }}">{{ c }}</a></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </li>
+  {% endmacro %}
+
   <ul class="tree">
     {% for f in folders %}
-    <li><a href="/folder/{{ f }}">{{ f }}</a>
-      <ul>
-        {% for sub in list_subfolders(f) %}
-        <li>{{ sub }}
-          <ul>
-            {% for c in list_chapters(f ~ '/' ~ sub) %}
-            <li><a href="/folder/{{ f }}/{{ sub }}/{{ c }}">{{ c }}</a></li>
-            {% endfor %}
-          </ul>
-        </li>
-        {% endfor %}
-        {% for c in list_chapters(f) %}
-        <li><a href="/folder/{{ f }}/{{ c }}">{{ c }}</a></li>
-        {% endfor %}
-      </ul>
-    </li>
+      {{ render_tree(f) }}
     {% endfor %}
   </ul>
 </div>

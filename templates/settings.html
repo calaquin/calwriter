@@ -1,0 +1,10 @@
+{% extends "layout.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<h1>Edit Book Settings</h1>
+<form method="post">
+  <p><label>Name:<br><input type="text" name="name" value="{{ name }}"></label></p>
+  <p><label>Description:<br><textarea name="description" rows="4" cols="40">{{ description }}</textarea></label></p>
+  <button type="submit">Save Settings</button>
+</form>
+{% endblock %}

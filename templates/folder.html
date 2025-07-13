@@ -2,6 +2,9 @@
 {% block title %}{{ folder }}{% endblock %}
 {% block content %}
 <h1>Book: {{ folder }}</h1>
+{% if description %}
+<p>{{ description }}</p>
+{% endif %}
 <h2>Folders</h2>
 <ul>
   {% for sub in subfolders %}
@@ -25,6 +28,7 @@
 </form>
 
 <p><a href="/folder/{{ folder }}/stats">View Stats</a></p>
+<p><a href="/folder/{{ folder }}/settings">Book Settings</a></p>
 
 <form action="/folder/{{ folder }}/delete" method="post" onsubmit="return confirm('Delete this book?');">
   <button type="submit">Delete Book</button>
