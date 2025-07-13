@@ -4,23 +4,14 @@
 <div id="chapter_page">
   <div id="chapter_area">
     <h1>{{ folder }} / {{ chapter }}</h1>
-    <p>
-      <a href="{{ url_for('download_chapter_docx', folder=folder, chapter=chapter) }}" download="{{ chapter }}.docx">Download Chapter</a>
-    </p>
     <form action="{{ url_for('save_chapter', folder=folder, chapter=chapter) }}" method="post" onsubmit="prepareChapter()">
       <div class="toolbar">
         <button type="button" onclick="execCmd('bold')">B</button>
         <button type="button" onclick="execCmd('italic')">I</button>
         <button type="button" onclick="execCmd('underline')">U</button>
-        <button type="button" onclick="execCmd('indent')">Indent</button>
-        <button type="button" onclick="execCmd('outdent')">Outdent</button>
       </div>
       <div id="chapter_editor" contenteditable="true" data-save-url="{{ url_for('autosave_chapter', folder=folder, chapter=chapter) }}">{{ chapter_html|safe }}</div>
       <input type="hidden" name="text" id="chapter_text" />
-      <button type="submit">Save Chapter</button>
-    </form>
-    <form action="{{ url_for('delete_chapter', folder=folder, chapter=chapter) }}" method="post" onsubmit="return confirm('Delete this chapter?');">
-      <button type="submit">Delete Chapter</button>
     </form>
   </div>
   <div id="notes_sidebar">

@@ -1,0 +1,10 @@
+{% extends "layout.html" %}
+{% block title %}Application Settings{% endblock %}
+{% block content %}
+<h1>Application Settings</h1>
+<form method="post">
+  <p><label><input type="checkbox" name="dark_mode" value="1" {% if settings.dark_mode %}checked{% endif %}> Dark mode</label></p>
+  <p><label>Sidebar color: <input type="color" name="sidebar_color" value="{{ settings.sidebar_color }}"></label></p>
+  <button type="submit">Save</button>
+</form>
+{% endblock %}

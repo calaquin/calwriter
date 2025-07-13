@@ -1,5 +1,6 @@
 import os
 import datetime
+import json
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory, flash
 import re
 from bs4 import BeautifulSoup
@@ -13,6 +14,23 @@ DATA_DIR = os.environ.get('DATA_DIR', os.path.join(os.getcwd(), 'data'))
 
 # Ensure data directory exists
 os.makedirs(DATA_DIR, exist_ok=True)
+
+SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
+
+
+def load_settings():
+    if os.path.isfile(SETTINGS_FILE):
+        with open(SETTINGS_FILE) as f:
+            try:
+                return json.load(f)
+            except json.JSONDecodeError:
+                pass
+    return {'dark_mode': False, 'sidebar_color': '#f0f0f0'}
+
+
+def save_settings(data: dict) -> None:
+    with open(SETTINGS_FILE, 'w') as f:
+        json.dump(data, f)
 
 
 def safe_name(name: str) -> str:
@@ -116,6 +134,11 @@ app.jinja_env.globals['list_notes'] = list_notes
 app.jinja_env.globals['list_subfolders'] = list_subfolders
 
 
+@app.context_processor
+def inject_app_settings():
+    return {'app_settings': load_settings()}
+
+
 def read_description(folder: str) -> str:
     """Return description text for a folder if present."""
     path = os.path.join(DATA_DIR, sanitize_path(folder), 'description.txt')
@@ -137,6 +160,19 @@ def index():
     folders = [f for f in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, f))]
     folders.sort(key=lambda n: os.path.getctime(os.path.join(DATA_DIR, n)))
     return render_template('index.html', folders=folders)
+
+
+@app.route('/settings', methods=['GET', 'POST'])
+def app_settings_page():
+    settings = load_settings()
+    if request.method == 'POST':
+        settings['dark_mode'] = bool(request.form.get('dark_mode'))
+        color = request.form.get('sidebar_color', '#f0f0f0') or '#f0f0f0'
+        settings['sidebar_color'] = color
+        save_settings(settings)
+        flash('Settings saved')
+        return redirect(url_for('index'))
+    return render_template('app_settings.html', settings=settings)
 
 
 @app.route('/folder/create', methods=['POST'])

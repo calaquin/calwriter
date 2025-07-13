@@ -5,9 +5,10 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script src="{{ url_for('static', filename='editor.js') }}"></script>
 </head>
-<body>
+<body class="{% if app_settings.dark_mode %}dark{% endif %}" style="--sidebar-bg: {{ app_settings.sidebar_color }}">
 <div id="sidebar">
   <a href="{{ url_for('index') }}">Home</a>
+  <a href="{{ url_for('app_settings_page') }}">App Settings</a>
   <h2>Books</h2>
   {% macro render_tree(path) %}
   <li><a href="/folder/{{ path }}">{{ path.split('/')[-1] }}</a>

@@ -5,21 +5,27 @@
 {% if description %}
 <p>{{ description }}</p>
 {% endif %}
-<h2>Folders</h2>
+<h2>Sub-Books</h2>
 <ul>
   {% for sub in subfolders %}
   <li><a href="/folder/{{ folder }}/{{ sub }}">{{ sub }}</a></li>
   {% endfor %}
 </ul>
 <form action="/folder/{{ folder }}/folder/create" method="post">
-  <input type="text" name="name" placeholder="New folder" />
-  <button type="submit">Create Folder</button>
+  <input type="text" name="name" placeholder="New sub-book" />
+  <button type="submit">Create Sub-Book</button>
 </form>
 
 <h2>Chapters</h2>
 <ul>
   {% for chapter in chapters %}
-  <li><a href="/folder/{{ folder }}/{{ chapter }}">{{ chapter }}</a></li>
+  <li>
+    <a href="/folder/{{ folder }}/{{ chapter }}">{{ chapter }}</a>
+    (<a href="{{ url_for('download_chapter_docx', folder=folder, chapter=chapter) }}">Download</a>)
+    <form action="/folder/{{ folder }}/{{ chapter }}/delete" method="post" style="display:inline" onsubmit="return confirm('Delete this chapter?');">
+      <button type="submit">Delete</button>
+    </form>
+  </li>
   {% endfor %}
 </ul>
 <form action="/folder/{{ folder }}/chapter/create" method="post">
