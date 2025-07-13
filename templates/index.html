@@ -1,19 +1,14 @@
-<!doctype html>
-<html>
-<head>
-  <title>Folders</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-</head>
-<body>
-  <h1>Folders</h1>
-  <ul>
-    {% for folder in folders %}
-    <li><a href="/folder/{{ folder }}">{{ folder }}</a></li>
-    {% endfor %}
-  </ul>
-  <form action="/folder/create" method="post">
-    <input type="text" name="name" placeholder="New folder" />
-    <button type="submit">Create Folder</button>
-  </form>
-</body>
-</html>
+{% extends "layout.html" %}
+{% block title %}Folders{% endblock %}
+{% block content %}
+<h1>Folders</h1>
+<ul>
+  {% for folder in folders %}
+  <li><a href="/folder/{{ folder }}">{{ folder }}</a></li>
+  {% endfor %}
+</ul>
+<form action="/folder/create" method="post">
+  <input type="text" name="name" placeholder="New folder" />
+  <button type="submit">Create Folder</button>
+</form>
+{% endblock %}

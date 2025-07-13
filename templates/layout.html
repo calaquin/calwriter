@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+<head>
+  <title>{% block title %}{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="{{ url_for('static', filename='editor.js') }}"></script>
+</head>
+<body>
+<div id="sidebar">
+  <h2>Files</h2>
+  <ul class="tree">
+    {% for f in folders %}
+    <li><a href="/folder/{{ f }}">{{ f }}</a>
+      <ul>
+        {% for c in list_chapters(f) %}
+        <li><a href="/folder/{{ f }}/{{ c }}">{{ c }}</a>
+          <ul>
+            <li><a href="/folder/{{ f }}/{{ c }}/chapter.rtf">chapter.rtf</a></li>
+            {% for n in list_notes(f, c) %}
+            <li><a href="/folder/{{ f }}/{{ c }}/{{ n }}">{{ n }}</a></li>
+            {% endfor %}
+          </ul>
+        </li>
+        {% endfor %}
+      </ul>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+<div id="main">
+  {% with messages = get_flashed_messages() %}
+  {% if messages %}
+  <ul class="flashes">
+    {% for msg in messages %}<li>{{ msg }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</div>
+</body>
+</html>

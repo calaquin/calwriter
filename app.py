@@ -5,7 +5,7 @@ import re
 app = Flask(__name__)
 app.secret_key = 'change-this'
 
-DATA_DIR = os.path.join(os.getcwd(), 'data')
+DATA_DIR = os.environ.get('DATA_DIR', os.path.join(os.getcwd(), 'data'))
 
 # Ensure data directory exists
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -38,6 +38,42 @@ def html_to_rtf(html: str) -> str:
         text = text.replace(fr, to)
     text = re.sub(r'<[^>]+>', '', text)  # strip any other tags
     return '{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Arial;}}\\f0 ' + text + '}'
+
+
+def rtf_to_html(rtf: str) -> str:
+    """Convert the limited RTF subset back to HTML for editing."""
+    text = rtf
+    # strip rtf header and trailing brace
+    text = re.sub(r'^\{\\rtf1[^\s]*\\f0 ?', '', text)
+    if text.endswith('}'):  # remove closing brace
+        text = text[:-1]
+    replacements = [
+        (r'\\b0', '</strong>'), (r'\\b ', '<strong>'),
+        (r'\\i0', '</em>'), (r'\\i ', '<em>'),
+        (r'\\ul0', '</u>'), (r'\\ul ', '<u>'),
+        (r'\\line', '<br/>'), (r'\\par', '<br/>'),
+    ]
+    for fr, to in replacements:
+        text = text.replace(fr, to)
+    return text
+
+
+def list_chapters(folder: str):
+    path = os.path.join(DATA_DIR, folder)
+    if os.path.isdir(path):
+        return [c for c in os.listdir(path) if os.path.isdir(os.path.join(path, c))]
+    return []
+
+
+def list_notes(folder: str, chapter: str):
+    path = os.path.join(DATA_DIR, folder, chapter)
+    if os.path.isdir(path):
+        return [n for n in os.listdir(path) if n.endswith('.rtf') and n != 'chapter.rtf']
+    return []
+
+
+app.jinja_env.globals['list_chapters'] = list_chapters
+app.jinja_env.globals['list_notes'] = list_notes
 
 
 @app.route('/')
@@ -89,10 +125,23 @@ def view_chapter(folder, chapter):
     if not os.path.isdir(path):
         flash('Chapter not found')
         return redirect(url_for('view_folder', folder=folder_name))
-    notes = [n for n in os.listdir(path) if n.endswith('.rtf')]
+    chapter_file = os.path.join(path, 'chapter.rtf')
+    chapter_html = ''
+    if os.path.isfile(chapter_file):
+        with open(chapter_file) as f:
+            chapter_html = rtf_to_html(f.read())
+    notes = [n for n in os.listdir(path) if n.endswith('.rtf') and n != 'chapter.rtf']
     folders = [f for f in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, f))]
     chapters = [c for c in os.listdir(os.path.join(DATA_DIR, folder_name)) if os.path.isdir(os.path.join(DATA_DIR, folder_name, c))]
-    return render_template('chapter.html', folder=folder_name, chapter=chapter_name, notes=notes, folders=folders, chapters=chapters)
+    return render_template(
+        'chapter.html',
+        folder=folder_name,
+        chapter=chapter_name,
+        notes=notes,
+        folders=folders,
+        chapters=chapters,
+        chapter_html=chapter_html
+    )
 
 
 @app.route('/folder/<folder>/<chapter>/note/create', methods=['POST'])
@@ -112,6 +161,19 @@ def create_note(folder, chapter):
     return redirect(url_for('view_chapter', folder=folder_name, chapter=chapter_name))
 
 
+@app.route('/folder/<folder>/<chapter>/save', methods=['POST'])
+def save_chapter(folder, chapter):
+    folder_name = safe_name(folder)
+    chapter_name = safe_name(chapter)
+    text = request.form.get('text', '')
+    path = os.path.join(DATA_DIR, folder_name, chapter_name)
+    os.makedirs(path, exist_ok=True)
+    chapter_file = os.path.join(path, 'chapter.rtf')
+    with open(chapter_file, 'w') as f:
+        f.write(html_to_rtf(text))
+    return redirect(url_for('view_chapter', folder=folder_name, chapter=chapter_name))
+
+
 @app.route('/folder/<folder>/<chapter>/<note>')
 def download_note(folder, chapter, note):
     folder_name = safe_name(folder)
@@ -119,6 +181,14 @@ def download_note(folder, chapter, note):
     note_name = safe_name(note)
     path = os.path.join(DATA_DIR, folder_name, chapter_name)
     return send_from_directory(path, note_name, as_attachment=True)
+
+
+@app.route('/folder/<folder>/<chapter>/chapter.rtf')
+def download_chapter_rtf(folder, chapter):
+    folder_name = safe_name(folder)
+    chapter_name = safe_name(chapter)
+    path = os.path.join(DATA_DIR, folder_name, chapter_name)
+    return send_from_directory(path, 'chapter.rtf', as_attachment=True)
 
 
 if __name__ == '__main__':
