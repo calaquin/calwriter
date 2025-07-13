@@ -10,10 +10,12 @@ Build the Docker image:
 docker build -t calwriter .
 ```
 
-Run the container with a volume mounted for persistent storage:
+Run the container with a volume mounted for persistent storage. The application
+stores all books and chapters in `/app/data` by default, so bind a host
+directory to that location:
 
 ```bash
-docker run -p 5000:5000 -v $(pwd)/data:/app/data calwriter
+docker run -p 5000:5000 -v /path/to/data:/app/data calwriter
 ```
 
 The application will be accessible at `http://localhost:5000`.
@@ -21,7 +23,9 @@ The application will be accessible at `http://localhost:5000`.
 ## Running with Docker Compose
 
 You can also run the application with Docker Compose. This builds the image and
-mounts the `data` directory so your books and chapters persist between runs.
+mounts a `data` directory so your books and chapters persist between runs. The
+`DATA_DIR` environment variable defaults to `/app/data` and is set explicitly in
+`docker-compose.yml`.
 
 ```bash
 docker compose up

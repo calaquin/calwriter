@@ -6,3 +6,5 @@ services:
       - "5000:5000"
     volumes:
       - ./data:/app/data
+    environment:
+      - DATA_DIR=/app/data
