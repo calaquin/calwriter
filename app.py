@@ -71,12 +71,18 @@ def list_chapters(folder: str):
     return []
 
 
+def note_filename(chapter: str) -> str:
+    """Return the standard notes filename for a chapter."""
+    return f"{chapter.replace(' ', '_')}_notes.txt"
+
+
 def list_notes(folder: str, chapter: str):
+    """Return the notes filename for the chapter if it exists."""
     path = os.path.join(DATA_DIR, folder, chapter)
-    if os.path.isdir(path):
-        notes = [n for n in os.listdir(path) if n.endswith('.txt')]
-        notes.sort(key=lambda n: os.path.getctime(os.path.join(path, n)))
-        return notes
+    filename = note_filename(chapter)
+    note_path = os.path.join(path, filename)
+    if os.path.isfile(note_path):
+        return [filename]
     return []
 
 
@@ -141,8 +147,13 @@ def view_chapter(folder, chapter):
     if os.path.isfile(chapter_file):
         with open(chapter_file) as f:
             chapter_html = f.read()
-    notes = [n for n in os.listdir(path) if n.endswith('.txt')]
-    notes.sort(key=lambda n: os.path.getctime(os.path.join(path, n)))
+
+    notes_file = os.path.join(path, note_filename(chapter_name))
+    notes_text = ''
+    if os.path.isfile(notes_file):
+        with open(notes_file) as f:
+            notes_text = f.read()
+
     folders = [f for f in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, f))]
     folders.sort(key=lambda n: os.path.getctime(os.path.join(DATA_DIR, n)))
     chapters = [c for c in os.listdir(os.path.join(DATA_DIR, folder_name)) if os.path.isdir(os.path.join(DATA_DIR, folder_name, c))]
@@ -151,27 +162,24 @@ def view_chapter(folder, chapter):
         'chapter.html',
         folder=folder_name,
         chapter=chapter_name,
-        notes=notes,
+        notes_text=notes_text,
         folders=folders,
         chapters=chapters,
         chapter_html=chapter_html
     )
 
 
-@app.route('/folder/<folder>/<chapter>/note/create', methods=['POST'])
-def create_note(folder, chapter):
+
+@app.route('/folder/<folder>/<chapter>/notes/save', methods=['POST'])
+def save_notes(folder, chapter):
     folder_name = safe_name(folder)
     chapter_name = safe_name(chapter)
-    title = safe_name(request.form.get('title', ''))
-    text = request.form.get('text', '')
-    if not title:
-        flash('Note title required')
-        return redirect(url_for('view_chapter', folder=folder_name, chapter=chapter_name))
+    text = request.form.get('notes', '')
     path = os.path.join(DATA_DIR, folder_name, chapter_name)
     os.makedirs(path, exist_ok=True)
-    note_path = os.path.join(path, f"{title}.txt")
+    note_path = os.path.join(path, note_filename(chapter_name))
     with open(note_path, 'w') as f:
-        f.write(html_to_text(text))
+        f.write(text)
     return redirect(url_for('view_chapter', folder=folder_name, chapter=chapter_name))
 
 

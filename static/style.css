@@ -28,6 +28,11 @@ body {
     padding: 10px;
     overflow-y: auto;
 }
+#notes_editor {
+    width: 100%;
+    min-height: 200px;
+    margin-bottom: 10px;
+}
 #editor, #chapter_editor {
     border: 1px solid #ccc;
     min-height: 200px;
