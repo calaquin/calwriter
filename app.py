@@ -10,6 +10,10 @@ from docx.shared import Inches
 app = Flask(__name__)
 app.secret_key = 'change-this'
 
+# Application version
+VERSION = "0.2.0"
+app.jinja_env.globals['app_version'] = VERSION
+
 DATA_DIR = os.environ.get('DATA_DIR', os.path.join(os.getcwd(), 'data'))
 
 # Ensure data directory exists

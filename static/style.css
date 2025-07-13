@@ -92,3 +92,9 @@ body.dark {
 .tree .toggle::before { content: '\25BC'; }
 .tree li.collapsed > .item-line > .toggle::before { content: '\25B6'; }
 .tree li.collapsed > ul { display: none; }
+
+.version {
+    margin-top: 1em;
+    font-size: 0.9em;
+    color: var(--text-color);
+}
