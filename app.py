@@ -1,4 +1,5 @@
 import os
+import datetime
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory, flash
 import re
 from bs4 import BeautifulSoup
@@ -62,12 +63,36 @@ def html_to_docx(html: str, path: str) -> None:
     doc.save(path)
 
 
+def sanitize_path(folder: str) -> str:
+    parts = [safe_name(p) for p in folder.split('/') if p]
+    return os.path.join(*parts) if parts else ''
+
+
 def list_chapters(folder: str):
-    path = os.path.join(DATA_DIR, folder)
+    path = os.path.join(DATA_DIR, sanitize_path(folder))
     if os.path.isdir(path):
-        chapters = [c for c in os.listdir(path) if os.path.isdir(os.path.join(path, c))]
+        chapters = [
+            c
+            for c in os.listdir(path)
+            if os.path.isdir(os.path.join(path, c))
+            and os.path.isfile(os.path.join(path, c, 'chapter.html'))
+        ]
         chapters.sort(key=lambda n: os.path.getctime(os.path.join(path, n)))
         return chapters
+    return []
+
+
+def list_subfolders(folder: str):
+    path = os.path.join(DATA_DIR, sanitize_path(folder))
+    if os.path.isdir(path):
+        subs = [
+            c
+            for c in os.listdir(path)
+            if os.path.isdir(os.path.join(path, c))
+            and not os.path.isfile(os.path.join(path, c, 'chapter.html'))
+        ]
+        subs.sort(key=lambda n: os.path.getctime(os.path.join(path, n)))
+        return subs
     return []
 
 
@@ -78,7 +103,7 @@ def note_filename(chapter: str) -> str:
 
 def list_notes(folder: str, chapter: str):
     """Return the notes filename for the chapter if it exists."""
-    path = os.path.join(DATA_DIR, folder, chapter)
+    path = os.path.join(DATA_DIR, sanitize_path(folder), safe_name(chapter))
     filename = note_filename(chapter)
     note_path = os.path.join(path, filename)
     if os.path.isfile(note_path):
@@ -88,6 +113,7 @@ def list_notes(folder: str, chapter: str):
 
 app.jinja_env.globals['list_chapters'] = list_chapters
 app.jinja_env.globals['list_notes'] = list_notes
+app.jinja_env.globals['list_subfolders'] = list_subfolders
 
 
 @app.route('/')
@@ -108,9 +134,9 @@ def create_folder():
     return redirect(url_for('view_folder', folder=name))
 
 
-@app.route('/folder/<folder>/delete', methods=['POST'])
+@app.route('/folder/<path:folder>/delete', methods=['POST'])
 def delete_folder(folder):
-    folder_name = safe_name(folder)
+    folder_name = sanitize_path(folder)
     path = os.path.join(DATA_DIR, folder_name)
     if os.path.isdir(path):
         import shutil
@@ -118,38 +144,42 @@ def delete_folder(folder):
         flash('Book deleted')
     else:
         flash('Book not found')
+    parent = os.path.dirname(folder_name)
+    if parent:
+        return redirect(url_for('view_folder', folder=parent))
     return redirect(url_for('index'))
 
 
-@app.route('/folder/<folder>')
+@app.route('/folder/<path:folder>')
 def view_folder(folder):
-    folder_name = safe_name(folder)
+    folder_name = sanitize_path(folder)
     path = os.path.join(DATA_DIR, folder_name)
     if not os.path.isdir(path):
         flash('Folder not found')
         return redirect(url_for('index'))
-    chapters = [c for c in os.listdir(path) if os.path.isdir(os.path.join(path, c))]
-    chapters.sort(key=lambda n: os.path.getctime(os.path.join(path, n)))
+    chapters = list_chapters(folder_name)
+    subfolders = list_subfolders(folder_name)
     folders = [f for f in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, f))]
     folders.sort(key=lambda n: os.path.getctime(os.path.join(DATA_DIR, n)))
-    return render_template('folder.html', folder=folder_name, chapters=chapters, folders=folders)
+    return render_template('folder.html', folder=folder_name, chapters=chapters, subfolders=subfolders, folders=folders)
 
 
-@app.route('/folder/<folder>/chapter/create', methods=['POST'])
+@app.route('/folder/<path:folder>/chapter/create', methods=['POST'])
 def create_chapter(folder):
-    folder_name = safe_name(folder)
+    folder_name = sanitize_path(folder)
     chapter = safe_name(request.form.get('name', ''))
     if not chapter:
         flash('Chapter name required')
         return redirect(url_for('view_folder', folder=folder_name))
     path = os.path.join(DATA_DIR, folder_name, chapter)
     os.makedirs(path, exist_ok=True)
+    open(os.path.join(path, 'chapter.html'), 'a').close()
     return redirect(url_for('view_chapter', folder=folder_name, chapter=chapter))
 
 
-@app.route('/folder/<folder>/<chapter>')
+@app.route('/folder/<path:folder>/<chapter>')
 def view_chapter(folder, chapter):
-    folder_name = safe_name(folder)
+    folder_name = sanitize_path(folder)
     chapter_name = safe_name(chapter)
     path = os.path.join(DATA_DIR, folder_name, chapter_name)
     if not os.path.isdir(path):
@@ -169,8 +199,7 @@ def view_chapter(folder, chapter):
 
     folders = [f for f in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, f))]
     folders.sort(key=lambda n: os.path.getctime(os.path.join(DATA_DIR, n)))
-    chapters = [c for c in os.listdir(os.path.join(DATA_DIR, folder_name)) if os.path.isdir(os.path.join(DATA_DIR, folder_name, c))]
-    chapters.sort(key=lambda n: os.path.getctime(os.path.join(DATA_DIR, folder_name, n)))
+    chapters = list_chapters(folder_name)
     return render_template(
         'chapter.html',
         folder=folder_name,
@@ -183,9 +212,9 @@ def view_chapter(folder, chapter):
 
 
 
-@app.route('/folder/<folder>/<chapter>/notes/save', methods=['POST'])
+@app.route('/folder/<path:folder>/<chapter>/notes/save', methods=['POST'])
 def save_notes(folder, chapter):
-    folder_name = safe_name(folder)
+    folder_name = sanitize_path(folder)
     chapter_name = safe_name(chapter)
     text = request.form.get('notes', '')
     path = os.path.join(DATA_DIR, folder_name, chapter_name)
@@ -196,9 +225,9 @@ def save_notes(folder, chapter):
     return ('', 204)
 
 
-@app.route('/folder/<folder>/<chapter>/save', methods=['POST'])
+@app.route('/folder/<path:folder>/<chapter>/save', methods=['POST'])
 def save_chapter(folder, chapter):
-    folder_name = safe_name(folder)
+    folder_name = sanitize_path(folder)
     chapter_name = safe_name(chapter)
     text = request.form.get('text', '')
     path = os.path.join(DATA_DIR, folder_name, chapter_name)
@@ -211,9 +240,24 @@ def save_chapter(folder, chapter):
     return redirect(url_for('view_chapter', folder=folder_name, chapter=chapter_name))
 
 
-@app.route('/folder/<folder>/<chapter>/delete', methods=['POST'])
+@app.route('/folder/<path:folder>/<chapter>/autosave', methods=['POST'])
+def autosave_chapter(folder, chapter):
+    folder_name = sanitize_path(folder)
+    chapter_name = safe_name(chapter)
+    text = request.form.get('text', '')
+    path = os.path.join(DATA_DIR, folder_name, chapter_name)
+    os.makedirs(path, exist_ok=True)
+    html_path = os.path.join(path, 'chapter.html')
+    with open(html_path, 'w') as f:
+        f.write(text)
+    docx_path = os.path.join(path, 'chapter.docx')
+    html_to_docx(text, docx_path)
+    return ('', 204)
+
+
+@app.route('/folder/<path:folder>/<chapter>/delete', methods=['POST'])
 def delete_chapter(folder, chapter):
-    folder_name = safe_name(folder)
+    folder_name = sanitize_path(folder)
     chapter_name = safe_name(chapter)
     path = os.path.join(DATA_DIR, folder_name, chapter_name)
     if os.path.isdir(path):
@@ -225,18 +269,18 @@ def delete_chapter(folder, chapter):
     return redirect(url_for('view_folder', folder=folder_name))
 
 
-@app.route('/folder/<folder>/<chapter>/notes/download')
+@app.route('/folder/<path:folder>/<chapter>/notes/download')
 def download_note(folder, chapter):
-    folder_name = safe_name(folder)
+    folder_name = sanitize_path(folder)
     chapter_name = safe_name(chapter)
     path = os.path.join(DATA_DIR, folder_name, chapter_name)
     note_name = note_filename(chapter_name)
     return send_from_directory(path, note_name, as_attachment=True, download_name=note_name)
 
 
-@app.route('/folder/<folder>/<chapter>/chapter.docx')
+@app.route('/folder/<path:folder>/<chapter>/chapter.docx')
 def download_chapter_docx(folder, chapter):
-    folder_name = safe_name(folder)
+    folder_name = sanitize_path(folder)
     chapter_name = safe_name(chapter)
     path = os.path.join(DATA_DIR, folder_name, chapter_name)
     return send_from_directory(
@@ -245,6 +289,38 @@ def download_chapter_docx(folder, chapter):
         as_attachment=True,
         download_name=f"{chapter_name}.docx",
     )
+
+
+@app.route('/folder/<path:folder>/folder/create', methods=['POST'])
+def create_subfolder(folder):
+    folder_name = sanitize_path(folder)
+    name = safe_name(request.form.get('name', ''))
+    if not name:
+        flash('Folder name required')
+        return redirect(url_for('view_folder', folder=folder_name))
+    path = os.path.join(DATA_DIR, folder_name, name)
+    os.makedirs(path, exist_ok=True)
+    return redirect(url_for('view_folder', folder=f"{folder_name}/{name}"))
+
+
+@app.route('/folder/<path:folder>/stats')
+def folder_stats(folder):
+    folder_name = sanitize_path(folder)
+    path = os.path.join(DATA_DIR, folder_name)
+    total_words = 0
+    words_per_day = {}
+    for root, dirs, files in os.walk(path):
+        if 'chapter.html' in files:
+            html_path = os.path.join(root, 'chapter.html')
+            with open(html_path) as f:
+                text = html_to_text(f.read())
+            count = len(text.split())
+            total_words += count
+            day = datetime.date.fromtimestamp(os.path.getmtime(html_path)).isoformat()
+            words_per_day[day] = words_per_day.get(day, 0) + count
+    folders = [f for f in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, f))]
+    folders.sort(key=lambda n: os.path.getctime(os.path.join(DATA_DIR, n)))
+    return render_template('stats.html', folder=folder_name, total_words=total_words, words_per_day=words_per_day, folders=folders)
 
 
 if __name__ == '__main__':

@@ -2,6 +2,18 @@
 {% block title %}{{ folder }}{% endblock %}
 {% block content %}
 <h1>Book: {{ folder }}</h1>
+<h2>Folders</h2>
+<ul>
+  {% for sub in subfolders %}
+  <li><a href="/folder/{{ folder }}/{{ sub }}">{{ sub }}</a></li>
+  {% endfor %}
+</ul>
+<form action="/folder/{{ folder }}/folder/create" method="post">
+  <input type="text" name="name" placeholder="New folder" />
+  <button type="submit">Create Folder</button>
+</form>
+
+<h2>Chapters</h2>
 <ul>
   {% for chapter in chapters %}
   <li><a href="/folder/{{ folder }}/{{ chapter }}">{{ chapter }}</a></li>
@@ -11,6 +23,9 @@
   <input type="text" name="name" placeholder="New chapter" />
   <button type="submit">Create Chapter</button>
 </form>
+
+<p><a href="/folder/{{ folder }}/stats">View Stats</a></p>
+
 <form action="/folder/{{ folder }}/delete" method="post" onsubmit="return confirm('Delete this book?');">
   <button type="submit">Delete Book</button>
 </form>

@@ -17,7 +17,20 @@ function updateWordCount() {
 document.addEventListener('DOMContentLoaded', () => {
     const editor = document.getElementById('chapter_editor');
     if (editor) {
-        editor.addEventListener('input', updateWordCount);
+        let timeout;
+        editor.addEventListener('input', () => {
+            updateWordCount();
+            clearTimeout(timeout);
+            timeout = setTimeout(() => {
+                fetch(editor.dataset.saveUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: new URLSearchParams({text: editor.innerHTML})
+                });
+            }, 1000);
+        });
         updateWordCount();
     }
     const notes = document.getElementById('notes_editor');

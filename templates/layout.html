@@ -7,11 +7,21 @@
 </head>
 <body>
 <div id="sidebar">
+  <a href="{{ url_for('index') }}">Home</a>
   <h2>Books</h2>
   <ul class="tree">
     {% for f in folders %}
     <li><a href="/folder/{{ f }}">{{ f }}</a>
       <ul>
+        {% for sub in list_subfolders(f) %}
+        <li>{{ sub }}
+          <ul>
+            {% for c in list_chapters(f ~ '/' ~ sub) %}
+            <li><a href="/folder/{{ f }}/{{ sub }}/{{ c }}">{{ c }}</a></li>
+            {% endfor %}
+          </ul>
+        </li>
+        {% endfor %}
         {% for c in list_chapters(f) %}
         <li><a href="/folder/{{ f }}/{{ c }}">{{ c }}</a></li>
         {% endfor %}

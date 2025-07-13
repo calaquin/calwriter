@@ -10,6 +10,10 @@ body {
     padding: 10px;
     overflow-y: auto;
 }
+#sidebar a {
+    display: block;
+    margin-bottom: 4px;
+}
 #main {
     flex: 1;
     padding: 20px;
@@ -21,12 +25,14 @@ body {
 #chapter_area {
     flex: 1;
     padding-right: 20px;
+    overflow-y: auto;
 }
 #notes_sidebar {
     width: 20%;
     background: #f7f7f7;
     padding: 10px;
     overflow-y: auto;
+    height: 100%;
 }
 #notes_editor {
     width: 100%;
