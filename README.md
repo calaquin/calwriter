@@ -17,3 +17,14 @@ docker run -p 5000:5000 -v $(pwd)/data:/app/data novel-app
 ```
 
 The application will be accessible at `http://localhost:5000`.
+
+## Running with Docker Compose
+
+You can also run the application with Docker Compose. This builds the image and
+mounts the `data` directory so your books and chapters persist between runs.
+
+```bash
+docker compose up
+```
+
+Point your browser to `http://localhost:5000` once the server is running.
