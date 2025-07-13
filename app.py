@@ -1,6 +1,9 @@
 import os
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory, flash
 import re
+from bs4 import BeautifulSoup
+from docx import Document
+from docx.shared import Inches
 
 app = Flask(__name__)
 app.secret_key = 'change-this'
@@ -15,49 +18,48 @@ def safe_name(name: str) -> str:
     return ''.join(c for c in name if c.isalnum() or c in (' ', '_', '-')).rstrip()
 
 
-def rtf_wrap(text: str) -> str:
-    escaped = text.replace('\n', '\\par ')
-    return '{\\rtf1\\ansi\\deff0 {\\fonttbl {\\f0 Arial;}}\\f0 ' + escaped + '}'
+def html_to_text(html: str) -> str:
+    """Convert HTML to plain text."""
+    soup = BeautifulSoup(html, "html.parser")
+    return soup.get_text(separator="\n")
 
 
-def html_to_rtf(html: str) -> str:
-    """Convert a very small subset of HTML to RTF."""
-    text = html.replace('\n', '')
-    # simple replacements for formatting tags
-    replacements = [
-        (r'<strong>', r'\\b '), (r'</strong>', r'\\b0 '),
-        (r'<b>', r'\\b '), (r'</b>', r'\\b0 '),
-        (r'<em>', r'\\i '), (r'</em>', r'\\i0 '),
-        (r'<i>', r'\\i '), (r'</i>', r'\\i0 '),
-        (r'<u>', r'\\ul '), (r'</u>', r'\\ul0 '),
-        (r'<blockquote>', r'\\li720 '), (r'</blockquote>', r'\\li0 '),
-        (r'<br>', r'\\line '), (r'<br/>', r'\\line '),
-        (r'<div>', ''), (r'</div>', r'\\par '),
-        (r'<p>', ''), (r'</p>', r'\\par ')
-    ]
-    for fr, to in replacements:
-        text = text.replace(fr, to)
-    text = re.sub(r'<[^>]+>', '', text)  # strip any other tags
-    return '{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Arial;}}\\f0 ' + text + '}'
+def html_to_docx(html: str, path: str) -> None:
+    """Save limited HTML content to a DOCX file."""
+    doc = Document()
+    soup = BeautifulSoup(html, "html.parser")
 
+    def process(elem, paragraph, formatting=None):
+        if formatting is None:
+            formatting = {}
+        if isinstance(elem, str):
+            run = paragraph.add_run(elem)
+            run.bold = formatting.get("bold", False)
+            run.italic = formatting.get("italic", False)
+            run.underline = formatting.get("underline", False)
+            return
+        tag = elem.name
+        fmt = formatting.copy()
+        if tag in ("strong", "b"):
+            fmt["bold"] = True
+        if tag in ("em", "i"):
+            fmt["italic"] = True
+        if tag == "u":
+            fmt["underline"] = True
+        if tag in ("p", "div", "br"):
+            p = doc.add_paragraph()
+            p.paragraph_format.first_line_indent = Inches(0.5)
+            for child in elem.children:
+                process(child, p, fmt)
+            return
+        for child in elem.children:
+            process(child, paragraph, fmt)
 
-def rtf_to_html(rtf: str) -> str:
-    """Convert the limited RTF subset back to HTML for editing."""
-    text = rtf
-    # strip rtf header and trailing brace
-    text = re.sub(r'^\{\\rtf1[^\s]*\\f0 ?', '', text)
-    if text.endswith('}'):  # remove closing brace
-        text = text[:-1]
-    replacements = [
-        (r'\\b0', '</strong>'), (r'\\b ', '<strong>'),
-        (r'\\i0', '</em>'), (r'\\i ', '<em>'),
-        (r'\\ul0', '</u>'), (r'\\ul ', '<u>'),
-        (r'\\li0', '</blockquote>'), (r'\\li720', '<blockquote>'),
-        (r'\\line', '<br/>'), (r'\\par', '<br/>'),
-    ]
-    for fr, to in replacements:
-        text = text.replace(fr, to)
-    return text
+    p = doc.add_paragraph()
+    p.paragraph_format.first_line_indent = Inches(0.5)
+    for child in soup.children:
+        process(child, p)
+    doc.save(path)
 
 
 def list_chapters(folder: str):
@@ -72,7 +74,7 @@ def list_chapters(folder: str):
 def list_notes(folder: str, chapter: str):
     path = os.path.join(DATA_DIR, folder, chapter)
     if os.path.isdir(path):
-        notes = [n for n in os.listdir(path) if n.endswith('.rtf') and n != 'chapter.rtf']
+        notes = [n for n in os.listdir(path) if n.endswith('.txt')]
         notes.sort(key=lambda n: os.path.getctime(os.path.join(path, n)))
         return notes
     return []
@@ -134,12 +136,12 @@ def view_chapter(folder, chapter):
     if not os.path.isdir(path):
         flash('Chapter not found')
         return redirect(url_for('view_folder', folder=folder_name))
-    chapter_file = os.path.join(path, 'chapter.rtf')
+    chapter_file = os.path.join(path, 'chapter.html')
     chapter_html = ''
     if os.path.isfile(chapter_file):
         with open(chapter_file) as f:
-            chapter_html = rtf_to_html(f.read())
-    notes = [n for n in os.listdir(path) if n.endswith('.rtf') and n != 'chapter.rtf']
+            chapter_html = f.read()
+    notes = [n for n in os.listdir(path) if n.endswith('.txt')]
     notes.sort(key=lambda n: os.path.getctime(os.path.join(path, n)))
     folders = [f for f in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, f))]
     folders.sort(key=lambda n: os.path.getctime(os.path.join(DATA_DIR, n)))
@@ -167,9 +169,9 @@ def create_note(folder, chapter):
         return redirect(url_for('view_chapter', folder=folder_name, chapter=chapter_name))
     path = os.path.join(DATA_DIR, folder_name, chapter_name)
     os.makedirs(path, exist_ok=True)
-    note_path = os.path.join(path, f"{title}.rtf")
+    note_path = os.path.join(path, f"{title}.txt")
     with open(note_path, 'w') as f:
-        f.write(html_to_rtf(text))
+        f.write(html_to_text(text))
     return redirect(url_for('view_chapter', folder=folder_name, chapter=chapter_name))
 
 
@@ -180,9 +182,11 @@ def save_chapter(folder, chapter):
     text = request.form.get('text', '')
     path = os.path.join(DATA_DIR, folder_name, chapter_name)
     os.makedirs(path, exist_ok=True)
-    chapter_file = os.path.join(path, 'chapter.rtf')
-    with open(chapter_file, 'w') as f:
-        f.write(html_to_rtf(text))
+    html_path = os.path.join(path, 'chapter.html')
+    with open(html_path, 'w') as f:
+        f.write(text)
+    docx_path = os.path.join(path, 'chapter.docx')
+    html_to_docx(text, docx_path)
     return redirect(url_for('view_chapter', folder=folder_name, chapter=chapter_name))
 
 
@@ -209,16 +213,16 @@ def download_note(folder, chapter, note):
     return send_from_directory(path, note_name, as_attachment=True)
 
 
-@app.route('/folder/<folder>/<chapter>/chapter.rtf')
-def download_chapter_rtf(folder, chapter):
+@app.route('/folder/<folder>/<chapter>/chapter.docx')
+def download_chapter_docx(folder, chapter):
     folder_name = safe_name(folder)
     chapter_name = safe_name(chapter)
     path = os.path.join(DATA_DIR, folder_name, chapter_name)
     return send_from_directory(
         path,
-        'chapter.rtf',
+        'chapter.docx',
         as_attachment=True,
-        download_name=f"{chapter_name}.rtf",
+        download_name=f"{chapter_name}.docx",
     )
 
 

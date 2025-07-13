@@ -5,7 +5,7 @@
   <div id="chapter_area">
     <h1>{{ folder }} / {{ chapter }}</h1>
     <p>
-      <a href="/folder/{{ folder }}/{{ chapter }}/chapter.rtf" download="{{ chapter }}.rtf">Download Chapter</a>
+      <a href="/folder/{{ folder }}/{{ chapter }}/chapter.docx" download="{{ chapter }}.docx">Download Chapter</a>
     </p>
     <form action="/folder/{{ folder }}/{{ chapter }}/save" method="post" onsubmit="prepareChapter()">
       <div class="toolbar">
@@ -17,7 +17,6 @@
       </div>
       <div id="chapter_editor" contenteditable="true">{{ chapter_html|safe }}</div>
       <input type="hidden" name="text" id="chapter_text" />
-      <p>Words: <span id="word_count">0</span></p>
       <button type="submit">Save Chapter</button>
     </form>
     <form action="/folder/{{ folder }}/{{ chapter }}/delete" method="post" onsubmit="return confirm('Delete this chapter?');">
@@ -25,6 +24,7 @@
     </form>
   </div>
   <div id="notes_sidebar">
+    <p>Words: <span id="word_count">0</span></p>
     <h2>Notes</h2>
     <ul>
       {% for note in notes %}
