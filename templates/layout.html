@@ -11,16 +11,20 @@
   <a href="{{ url_for('app_settings_page') }}">App Settings</a>
   <h2>Books</h2>
   {% macro render_tree(path) %}
-  <li><a href="/folder/{{ path }}">{{ path.split('/')[-1] }}</a>
-    {% set subs = list_subfolders(path) %}
-    {% set chaps = list_chapters(path) %}
+  {% set subs = list_subfolders(path) %}
+  {% set chaps = list_chapters(path) %}
+  <li class="tree-item{% if subs or chaps %} collapsible{% endif %}">
+    <div class="item-line">
+      {% if subs or chaps %}<span class="toggle" onclick="toggleTree(this)"></span>{% endif %}
+      <a href="/folder/{{ path }}">{{ path.split('/')[-1] }}</a>
+    </div>
     {% if subs or chaps %}
     <ul>
       {% for s in subs %}
         {{ render_tree(path ~ '/' ~ s) }}
       {% endfor %}
       {% for c in chaps %}
-        <li><a href="/folder/{{ path }}/{{ c }}">{{ c }}</a></li>
+        <li class="tree-item"><a href="/folder/{{ path }}/chapter/{{ c }}">{{ c }}</a></li>
       {% endfor %}
     </ul>
     {% endif %}

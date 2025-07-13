@@ -1,6 +1,12 @@
 function execCmd(command) {
     document.execCommand(command, false, null);
 }
+function toggleTree(el) {
+    const li = el.closest('li');
+    if (li) {
+        li.classList.toggle('collapsed');
+    }
+}
 function prepareChapter() {
     document.getElementById('chapter_text').value = document.getElementById('chapter_editor').innerHTML;
 }

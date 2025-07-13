@@ -79,3 +79,13 @@ body.dark {
 #word_count {
     font-weight: bold;
 }
+
+/* collapsible tree */
+.tree { list-style: none; padding-left: 0; }
+.tree ul { list-style: none; padding-left: 1em; margin: 0; }
+.tree-item { margin: 2px 0; }
+.tree .item-line { display: flex; align-items: center; }
+.tree .toggle { cursor: pointer; width: 1em; display: inline-block; }
+.tree .toggle::before { content: '\25BC'; }
+.tree li.collapsed > .item-line > .toggle::before { content: '\25B6'; }
+.tree li.collapsed > ul { display: none; }

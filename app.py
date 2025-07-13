@@ -196,10 +196,18 @@ def index():
 def app_settings_page():
     settings = load_settings()
     if request.method == 'POST':
-        settings['dark_mode'] = bool(request.form.get('dark_mode'))
-        settings['sidebar_color'] = request.form.get('sidebar_color', '#f0f0f0') or '#f0f0f0'
-        settings['text_color'] = request.form.get('text_color', '#000000') or '#000000'
-        settings['bg_color'] = request.form.get('bg_color', '#ffffff') or '#ffffff'
+        if 'reset' in request.form:
+            settings = {
+                'dark_mode': False,
+                'sidebar_color': '#f0f0f0',
+                'text_color': '#000000',
+                'bg_color': '#ffffff',
+            }
+        else:
+            settings['dark_mode'] = bool(request.form.get('dark_mode'))
+            settings['sidebar_color'] = request.form.get('sidebar_color', '#f0f0f0') or '#f0f0f0'
+            settings['text_color'] = request.form.get('text_color', '#000000') or '#000000'
+            settings['bg_color'] = request.form.get('bg_color', '#ffffff') or '#ffffff'
         save_settings(settings)
         flash('Settings saved')
         return redirect(url_for('index'))
@@ -327,7 +335,7 @@ def create_chapter(folder):
     return redirect(url_for('view_chapter', folder=folder_name, chapter=chapter))
 
 
-@app.route('/folder/<path:folder>/<chapter>')
+@app.route('/folder/<path:folder>/chapter/<chapter>')
 def view_chapter(folder, chapter):
     folder_name = sanitize_path(folder)
     chapter_name = safe_name(chapter)
@@ -362,7 +370,7 @@ def view_chapter(folder, chapter):
 
 
 
-@app.route('/folder/<path:folder>/<chapter>/notes/save', methods=['POST'])
+@app.route('/folder/<path:folder>/chapter/<chapter>/notes/save', methods=['POST'])
 def save_notes(folder, chapter):
     folder_name = sanitize_path(folder)
     chapter_name = safe_name(chapter)
@@ -375,7 +383,7 @@ def save_notes(folder, chapter):
     return ('', 204)
 
 
-@app.route('/folder/<path:folder>/<chapter>/save', methods=['POST'])
+@app.route('/folder/<path:folder>/chapter/<chapter>/save', methods=['POST'])
 def save_chapter(folder, chapter):
     folder_name = sanitize_path(folder)
     chapter_name = safe_name(chapter)
@@ -390,7 +398,7 @@ def save_chapter(folder, chapter):
     return redirect(url_for('view_chapter', folder=folder_name, chapter=chapter_name))
 
 
-@app.route('/folder/<path:folder>/<chapter>/autosave', methods=['POST'])
+@app.route('/folder/<path:folder>/chapter/<chapter>/autosave', methods=['POST'])
 def autosave_chapter(folder, chapter):
     folder_name = sanitize_path(folder)
     chapter_name = safe_name(chapter)
@@ -405,7 +413,7 @@ def autosave_chapter(folder, chapter):
     return ('', 204)
 
 
-@app.route('/folder/<path:folder>/<chapter>/delete', methods=['POST'])
+@app.route('/folder/<path:folder>/chapter/<chapter>/delete', methods=['POST'])
 def delete_chapter(folder, chapter):
     folder_name = sanitize_path(folder)
     chapter_name = safe_name(chapter)
@@ -423,7 +431,7 @@ def delete_chapter(folder, chapter):
     return redirect(url_for('view_folder', folder=folder_name))
 
 
-@app.route('/folder/<path:folder>/<chapter>/notes/download')
+@app.route('/folder/<path:folder>/chapter/<chapter>/notes/download')
 def download_note(folder, chapter):
     folder_name = sanitize_path(folder)
     chapter_name = safe_name(chapter)
@@ -432,7 +440,7 @@ def download_note(folder, chapter):
     return send_from_directory(path, note_name, as_attachment=True, download_name=note_name)
 
 
-@app.route('/folder/<path:folder>/<chapter>/chapter.docx')
+@app.route('/folder/<path:folder>/chapter/<chapter>/chapter.docx')
 def download_chapter_docx(folder, chapter):
     folder_name = sanitize_path(folder)
     chapter_name = safe_name(chapter)
