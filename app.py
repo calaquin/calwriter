@@ -108,6 +108,19 @@ def create_folder():
     return redirect(url_for('view_folder', folder=name))
 
 
+@app.route('/folder/<folder>/delete', methods=['POST'])
+def delete_folder(folder):
+    folder_name = safe_name(folder)
+    path = os.path.join(DATA_DIR, folder_name)
+    if os.path.isdir(path):
+        import shutil
+        shutil.rmtree(path)
+        flash('Book deleted')
+    else:
+        flash('Book not found')
+    return redirect(url_for('index'))
+
+
 @app.route('/folder/<folder>')
 def view_folder(folder):
     folder_name = safe_name(folder)
@@ -180,7 +193,7 @@ def save_notes(folder, chapter):
     note_path = os.path.join(path, note_filename(chapter_name))
     with open(note_path, 'w') as f:
         f.write(text)
-    return redirect(url_for('view_chapter', folder=folder_name, chapter=chapter_name))
+    return ('', 204)
 
 
 @app.route('/folder/<folder>/<chapter>/save', methods=['POST'])
@@ -212,13 +225,13 @@ def delete_chapter(folder, chapter):
     return redirect(url_for('view_folder', folder=folder_name))
 
 
-@app.route('/folder/<folder>/<chapter>/<note>')
-def download_note(folder, chapter, note):
+@app.route('/folder/<folder>/<chapter>/notes/download')
+def download_note(folder, chapter):
     folder_name = safe_name(folder)
     chapter_name = safe_name(chapter)
-    note_name = safe_name(note)
     path = os.path.join(DATA_DIR, folder_name, chapter_name)
-    return send_from_directory(path, note_name, as_attachment=True)
+    note_name = note_filename(chapter_name)
+    return send_from_directory(path, note_name, as_attachment=True, download_name=note_name)
 
 
 @app.route('/folder/<folder>/<chapter>/chapter.docx')

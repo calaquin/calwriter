@@ -27,12 +27,9 @@
     <p>Words: <span id="word_count">0</span></p>
     <h2>Notes</h2>
     {% if notes_text %}
-    <p><a href="/folder/{{ folder }}/{{ chapter }}/{{ chapter|replace(' ', '_') }}_notes.txt">Download Notes</a></p>
+    <p><a href="/folder/{{ folder }}/{{ chapter }}/notes/download">Download Notes</a></p>
     {% endif %}
-    <form action="/folder/{{ folder }}/{{ chapter }}/notes/save" method="post">
-      <textarea id="notes_editor" name="notes">{{ notes_text }}</textarea>
-      <button type="submit">Save Notes</button>
-    </form>
+    <textarea id="notes_editor" data-save-url="/folder/{{ folder }}/{{ chapter }}/notes/save">{{ notes_text }}</textarea>
   </div>
 </div>
 {% endblock %}

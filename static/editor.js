@@ -20,4 +20,20 @@ document.addEventListener('DOMContentLoaded', () => {
         editor.addEventListener('input', updateWordCount);
         updateWordCount();
     }
+    const notes = document.getElementById('notes_editor');
+    if (notes) {
+        let timeout;
+        notes.addEventListener('input', () => {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => {
+                fetch(notes.dataset.saveUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: new URLSearchParams({notes: notes.value})
+                });
+            }, 500);
+        });
+    }
 });
