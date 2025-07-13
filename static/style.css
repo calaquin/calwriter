@@ -1,0 +1,94 @@
+#:root defines customizable colors which can be toggled via settings
+:root {
+    --bg-color: #fff;
+    --text-color: #000;
+    --sidebar-bg: #f0f0f0;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    display: flex;
+    height: 100vh;
+    margin: 0;
+    background: var(--bg-color);
+    color: var(--text-color);
+}
+
+body.dark {
+    --bg-color: #222;
+    --text-color: #eee;
+    --sidebar-bg: #333;
+}
+#sidebar {
+    width: 250px;
+    background: var(--sidebar-bg);
+    padding: 10px;
+    overflow-y: auto;
+}
+#search_form {
+    margin-bottom: 10px;
+}
+#sidebar a {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--text-color);
+}
+#main {
+    flex: 1;
+    padding: 20px;
+}
+#chapter_page {
+    display: flex;
+    height: 100%;
+}
+#chapter_area {
+    flex: 1;
+    padding-right: 20px;
+    overflow-y: auto;
+}
+#notes_sidebar {
+    width: 20%;
+    background: var(--sidebar-bg);
+    padding: 10px;
+    overflow-y: auto;
+    height: 100%;
+    color: var(--text-color);
+}
+#notes_editor {
+    width: 100%;
+    min-height: 200px;
+    margin-bottom: 10px;
+}
+#editor, #chapter_editor {
+    border: 1px solid #ccc;
+    min-height: 200px;
+    padding: 8px;
+    margin-bottom: 10px;
+    background: var(--bg-color);
+}
+#chapter_editor p,
+#chapter_editor div {
+    text-indent: 2em;
+    margin: 0 0 1em 0;
+}
+.toolbar button {
+    font-weight: bold;
+    border: 1px solid #ccc;
+    background: var(--bg-color);
+    margin-right: 4px;
+    color: var(--text-color);
+}
+
+#word_count {
+    font-weight: bold;
+}
+
+/* collapsible tree */
+.tree { list-style: none; padding-left: 0; }
+.tree ul { list-style: none; padding-left: 1em; margin: 0; }
+.tree-item { margin: 2px 0; }
+.tree .item-line { display: flex; align-items: center; }
+.tree .toggle { cursor: pointer; width: 1em; display: inline-block; }
+.tree .toggle::before { content: '\25BC'; }
+.tree li.collapsed > .item-line > .toggle::before { content: '\25B6'; }
+.tree li.collapsed > ul { display: none; }
