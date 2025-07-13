@@ -1,0 +1,14 @@
+<!doctype html>
+<title>{{ chapter }}</title>
+<h1>{{ folder }} / {{ chapter }}</h1>
+<ul>
+  {% for note in notes %}
+  <li><a href="/folder/{{ folder }}/{{ chapter }}/{{ note }}">{{ note }}</a></li>
+  {% endfor %}
+</ul>
+<form action="/folder/{{ folder }}/{{ chapter }}/note/create" method="post">
+  <input type="text" name="title" placeholder="Note title" /><br/>
+  <textarea name="text" rows="4" cols="50" placeholder="Note text"></textarea><br/>
+  <button type="submit">Create Note</button>
+</form>
+<p><a href="/folder/{{ folder }}">Back</a></p>
