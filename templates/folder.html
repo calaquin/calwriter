@@ -5,15 +5,15 @@
 {% if description %}
 <p>{{ description }}</p>
 {% endif %}
-<h2>Sub-Books</h2>
+<h2>Sub-Folders</h2>
 <ul>
   {% for sub in subfolders %}
   <li><a href="/folder/{{ folder }}/{{ sub }}">{{ sub }}</a></li>
   {% endfor %}
 </ul>
 <form action="/folder/{{ folder }}/folder/create" method="post">
-  <input type="text" name="name" placeholder="New sub-book" />
-  <button type="submit">Create Sub-Book</button>
+  <input type="text" name="name" placeholder="New sub-folder" />
+  <button type="submit">Create Sub-Folder</button>
 </form>
 
 <h2>Chapters</h2>

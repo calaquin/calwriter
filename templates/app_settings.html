@@ -5,6 +5,8 @@
 <form method="post">
   <p><label><input type="checkbox" name="dark_mode" value="1" {% if settings.dark_mode %}checked{% endif %}> Dark mode</label></p>
   <p><label>Sidebar color: <input type="color" name="sidebar_color" value="{{ settings.sidebar_color }}"></label></p>
+  <p><label>Font color: <input type="color" name="text_color" value="{{ settings.text_color }}"></label></p>
+  <p><label>Main page color: <input type="color" name="bg_color" value="{{ settings.bg_color }}"></label></p>
   <button type="submit">Save</button>
 </form>
 {% endblock %}

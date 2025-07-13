@@ -25,7 +25,12 @@ def load_settings():
                 return json.load(f)
             except json.JSONDecodeError:
                 pass
-    return {'dark_mode': False, 'sidebar_color': '#f0f0f0'}
+    return {
+        'dark_mode': False,
+        'sidebar_color': '#f0f0f0',
+        'text_color': '#000000',
+        'bg_color': '#ffffff',
+    }
 
 
 def save_settings(data: dict) -> None:
@@ -86,32 +91,57 @@ def sanitize_path(folder: str) -> str:
     return os.path.join(*parts) if parts else ''
 
 
+def load_order(folder: str) -> dict:
+    """Load ordering info for a folder."""
+    order_file = os.path.join(DATA_DIR, sanitize_path(folder), 'order.json')
+    if os.path.isfile(order_file):
+        try:
+            with open(order_file) as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            pass
+    return {'folders': [], 'chapters': []}
+
+
+def save_order(folder: str, order: dict) -> None:
+    os.makedirs(os.path.join(DATA_DIR, sanitize_path(folder)), exist_ok=True)
+    order_file = os.path.join(DATA_DIR, sanitize_path(folder), 'order.json')
+    with open(order_file, 'w') as f:
+        json.dump(order, f)
+
+
 def list_chapters(folder: str):
     path = os.path.join(DATA_DIR, sanitize_path(folder))
-    if os.path.isdir(path):
-        chapters = [
-            c
-            for c in os.listdir(path)
-            if os.path.isdir(os.path.join(path, c))
-            and os.path.isfile(os.path.join(path, c, 'chapter.html'))
-        ]
-        chapters.sort(key=lambda n: os.path.getctime(os.path.join(path, n)))
-        return chapters
-    return []
+    if not os.path.isdir(path):
+        return []
+    chapters = [
+        c
+        for c in os.listdir(path)
+        if os.path.isdir(os.path.join(path, c))
+        and os.path.isfile(os.path.join(path, c, 'chapter.html'))
+    ]
+    order = load_order(folder).get('chapters', [])
+    ordered = [c for c in order if c in chapters]
+    remaining = [c for c in chapters if c not in ordered]
+    remaining.sort(key=lambda n: os.path.getctime(os.path.join(path, n)))
+    return ordered + remaining
 
 
 def list_subfolders(folder: str):
     path = os.path.join(DATA_DIR, sanitize_path(folder))
-    if os.path.isdir(path):
-        subs = [
-            c
-            for c in os.listdir(path)
-            if os.path.isdir(os.path.join(path, c))
-            and not os.path.isfile(os.path.join(path, c, 'chapter.html'))
-        ]
-        subs.sort(key=lambda n: os.path.getctime(os.path.join(path, n)))
-        return subs
-    return []
+    if not os.path.isdir(path):
+        return []
+    subs = [
+        c
+        for c in os.listdir(path)
+        if os.path.isdir(os.path.join(path, c))
+        and not os.path.isfile(os.path.join(path, c, 'chapter.html'))
+    ]
+    order = load_order(folder).get('folders', [])
+    ordered = [s for s in order if s in subs]
+    remaining = [s for s in subs if s not in ordered]
+    remaining.sort(key=lambda n: os.path.getctime(os.path.join(path, n)))
+    return ordered + remaining
 
 
 def note_filename(chapter: str) -> str:
@@ -167,8 +197,9 @@ def app_settings_page():
     settings = load_settings()
     if request.method == 'POST':
         settings['dark_mode'] = bool(request.form.get('dark_mode'))
-        color = request.form.get('sidebar_color', '#f0f0f0') or '#f0f0f0'
-        settings['sidebar_color'] = color
+        settings['sidebar_color'] = request.form.get('sidebar_color', '#f0f0f0') or '#f0f0f0'
+        settings['text_color'] = request.form.get('text_color', '#000000') or '#000000'
+        settings['bg_color'] = request.form.get('bg_color', '#ffffff') or '#ffffff'
         save_settings(settings)
         flash('Settings saved')
         return redirect(url_for('index'))
@@ -190,13 +221,18 @@ def create_folder():
 def delete_folder(folder):
     folder_name = sanitize_path(folder)
     path = os.path.join(DATA_DIR, folder_name)
+    parent = os.path.dirname(folder_name)
     if os.path.isdir(path):
         import shutil
         shutil.rmtree(path)
         flash('Book deleted')
+        if parent:
+            order = load_order(parent)
+            if os.path.basename(folder_name) in order.get('folders', []):
+                order['folders'].remove(os.path.basename(folder_name))
+                save_order(parent, order)
     else:
         flash('Book not found')
-    parent = os.path.dirname(folder_name)
     if parent:
         return redirect(url_for('view_folder', folder=parent))
     return redirect(url_for('index'))
@@ -210,7 +246,22 @@ def folder_settings(folder):
         flash('Book not found')
         return redirect(url_for('index'))
     description = read_description(folder_name)
+    order = load_order(folder_name)
     if request.method == 'POST':
+        if 'item_type' in request.form:
+            typ = request.form['item_type']
+            name = request.form['item_name']
+            direction = request.form['direction']
+            items = order.get(f'{typ}s', [])
+            if name in items:
+                idx = items.index(name)
+                if direction == 'up' and idx > 0:
+                    items[idx], items[idx-1] = items[idx-1], items[idx]
+                elif direction == 'down' and idx < len(items)-1:
+                    items[idx], items[idx+1] = items[idx+1], items[idx]
+                order[f'{typ}s'] = items
+                save_order(folder_name, order)
+            return redirect(url_for('folder_settings', folder=folder_name))
         new_name = safe_name(request.form.get('name', folder_name.split('/')[-1]))
         desc = request.form.get('description', '')
         if new_name and new_name != folder_name.split('/')[-1]:
@@ -219,12 +270,29 @@ def folder_settings(folder):
                 flash('Name already exists')
             else:
                 os.rename(path, new_path)
+                parent = os.path.dirname(folder_name)
+                if parent:
+                    parent_order = load_order(parent)
+                    old = folder_name.split('/')[-1]
+                    if old in parent_order.get('folders', []):
+                        idx = parent_order['folders'].index(old)
+                        parent_order['folders'][idx] = new_name
+                        save_order(parent, parent_order)
                 folder_name = os.path.join(os.path.dirname(folder_name), new_name).strip('/')
                 path = new_path
                 flash('Book renamed')
         write_description(folder_name, desc)
         return redirect(url_for('view_folder', folder=folder_name))
-    return render_template('settings.html', folder=folder_name, name=folder_name.split('/')[-1], description=description)
+    subfolders = list_subfolders(folder_name)
+    chapters = list_chapters(folder_name)
+    return render_template(
+        'settings.html',
+        folder=folder_name,
+        name=folder_name.split('/')[-1],
+        description=description,
+        subfolders=subfolders,
+        chapters=chapters,
+    )
 
 
 @app.route('/folder/<path:folder>')
@@ -252,6 +320,10 @@ def create_chapter(folder):
     path = os.path.join(DATA_DIR, folder_name, chapter)
     os.makedirs(path, exist_ok=True)
     open(os.path.join(path, 'chapter.html'), 'a').close()
+    order = load_order(folder_name)
+    if chapter not in order.get('chapters', []):
+        order.setdefault('chapters', []).append(chapter)
+        save_order(folder_name, order)
     return redirect(url_for('view_chapter', folder=folder_name, chapter=chapter))
 
 
@@ -342,6 +414,10 @@ def delete_chapter(folder, chapter):
         import shutil
         shutil.rmtree(path)
         flash('Chapter deleted')
+        order = load_order(folder_name)
+        if chapter_name in order.get('chapters', []):
+            order['chapters'].remove(chapter_name)
+            save_order(folder_name, order)
     else:
         flash('Chapter not found')
     return redirect(url_for('view_folder', folder=folder_name))
@@ -378,6 +454,10 @@ def create_subfolder(folder):
         return redirect(url_for('view_folder', folder=folder_name))
     path = os.path.join(DATA_DIR, folder_name, name)
     os.makedirs(path, exist_ok=True)
+    order = load_order(folder_name)
+    if name not in order.get('folders', []):
+        order.setdefault('folders', []).append(name)
+        save_order(folder_name, order)
     return redirect(url_for('view_folder', folder=f"{folder_name}/{name}"))
 
 
