@@ -20,7 +20,7 @@ app = Flask(__name__)
 app.secret_key = 'change-this'
 
 # Application version
-VERSION = "0.4.1"
+VERSION = "0.4.2"
 app.jinja_env.globals['app_version'] = VERSION
 
 DATA_DIR = os.environ.get('DATA_DIR', os.path.join(os.getcwd(), 'data'))
@@ -755,6 +755,13 @@ def help_page():
     """Display a basic help page."""
     folders = list_books()
     return render_template('help.html', folders=folders)
+
+
+@app.route('/about')
+def about_page():
+    """Show license information."""
+    folders = list_books()
+    return render_template('about.html', folders=folders)
 
 
 if __name__ == '__main__':

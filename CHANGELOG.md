@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2 - 2025-07-14 18:00 UTC
+- add MIT license and about page
+- bump version number
+
 ## 0.4.1 - 2025-07-14 14:20 UTC
 - allow chapters to be reordered directly on the folder page
 - fixed delete button text for sub-folders

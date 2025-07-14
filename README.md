@@ -1,6 +1,6 @@
 # CalWriter
 
-Version 0.4.1
+Version 0.4.2
 
 CalWriter is a simple Flask application for drafting novels. It lets you create books with sub-folders and chapters. Each chapter has a notes area that saves automatically as plain text while the chapter itself is stored as a Word document (`.docx`). Basic formatting, automatic saving and a word counter make writing straightforward. Books and chapters can be reordered by dragging them in the list, and a stats page tracks your daily word totals.
 
@@ -38,3 +38,7 @@ services:
 ```
 
 Run `docker compose up` and open `http://localhost:5000` in your browser.
+
+## License
+
+CalWriter is released under the [MIT License](LICENSE).

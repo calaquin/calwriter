@@ -9,6 +9,7 @@
 <div id="sidebar">
   <a href="{{ url_for('index') }}">Home</a>
   <a href="{{ url_for('app_settings_page') }}">App Settings</a>
+  <a href="{{ url_for('about_page') }}">About</a>
   <form action="{{ url_for('search') }}" method="get" id="search_form">
     <input type="text" name="q" placeholder="Search" />
   </form>
