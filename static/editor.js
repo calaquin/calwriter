@@ -51,6 +51,10 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         updateWordCount();
     }
+    const undoBtn = document.getElementById('undo_btn');
+    if (undoBtn && editor) {
+        undoBtn.addEventListener('click', () => execCmd('undo'));
+    }
     const notes = document.getElementById('notes_editor');
     if (notes) {
         let timeout;
@@ -68,10 +72,70 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    const sidebar = document.getElementById('notes_sidebar');
+    if (sidebar) {
+        const storedWidth = localStorage.getItem('notesWidth');
+        if (storedWidth) sidebar.style.width = storedWidth;
+        const saveWidth = () => {
+            localStorage.setItem('notesWidth', sidebar.style.width);
+        };
+        sidebar.addEventListener('mouseup', saveWidth);
+        sidebar.addEventListener('touchend', saveWidth);
+    }
+
+    setupTabs();
+
     document.querySelectorAll('.sortable').forEach(ul => {
         enableDragSort(ul);
     });
 });
+
+function setupTabs() {
+    const tabsEl = document.getElementById('chapter_tabs');
+    if (!tabsEl) return;
+    const currentFolder = tabsEl.dataset.folder;
+    const currentChapter = tabsEl.dataset.chapter;
+    let tabs = JSON.parse(localStorage.getItem('open_chapters') || '[]');
+    const existing = tabs.find(t => t.folder === currentFolder && t.chapter === currentChapter);
+    if (!existing) {
+        tabs.push({folder: currentFolder, chapter: currentChapter});
+        localStorage.setItem('open_chapters', JSON.stringify(tabs));
+    }
+    renderTabs(tabsEl, tabs, currentFolder, currentChapter);
+}
+
+function renderTabs(container, tabs, currentFolder, currentChapter) {
+    container.innerHTML = '';
+    tabs.forEach((t, i) => {
+        const tab = document.createElement('span');
+        tab.className = 'chapter-tab' + (t.folder === currentFolder && t.chapter === currentChapter ? ' active' : '');
+        const link = document.createElement('a');
+        link.textContent = t.chapter;
+        link.href = `/folder/${t.folder}/chapter/${t.chapter}`;
+        tab.appendChild(link);
+        const close = document.createElement('button');
+        close.textContent = '×';
+        close.className = 'close-tab';
+        close.addEventListener('click', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            tabs.splice(i,1);
+            localStorage.setItem('open_chapters', JSON.stringify(tabs));
+            if (t.folder === currentFolder && t.chapter === currentChapter) {
+                if (tabs.length) {
+                    const next = tabs[tabs.length-1];
+                    window.location.href = `/folder/${next.folder}/chapter/${next.chapter}`;
+                } else {
+                    window.location.href = `/folder/${t.folder}`;
+                }
+            } else {
+                renderTabs(container, tabs, currentFolder, currentChapter);
+            }
+        });
+        tab.appendChild(close);
+        container.appendChild(tab);
+    });
+}
 
 function enableDragSort(ul) {
     let dragging;

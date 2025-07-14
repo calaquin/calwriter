@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.5 - 2025-07-14 22:12 UTC
+- resizable notes sidebar remembers its width
+- added undo button and support for multiple chapter tabs
+- bump version number
+
 ## 0.4.2 - 2025-07-14 18:00 UTC
 - add MIT license and about page
 - bump version number

@@ -46,6 +46,32 @@ body.dark {
     padding-right: 20px;
     overflow-y: auto;
 }
+#chapter_tabs {
+    margin-bottom: 8px;
+}
+.chapter-tab {
+    display: inline-block;
+    background: var(--sidebar-bg);
+    padding: 2px 6px;
+    margin-right: 4px;
+    border: 1px solid #ccc;
+    border-bottom: none;
+}
+.chapter-tab.active {
+    background: var(--bg-color);
+    border-bottom: 1px solid var(--bg-color);
+}
+.chapter-tab a {
+    color: var(--text-color);
+    text-decoration: none;
+    margin-right: 4px;
+}
+.close-tab {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: var(--text-color);
+}
 #notes_sidebar {
     width: 20%;
     background: var(--sidebar-bg);
@@ -53,9 +79,13 @@ body.dark {
     overflow-y: auto;
     height: 100%;
     color: var(--text-color);
+    resize: horizontal;
+    min-width: 150px;
+    max-width: 50%;
 }
 #notes_editor {
     width: 100%;
+    box-sizing: border-box;
     min-height: 200px;
     margin-bottom: 10px;
 }
