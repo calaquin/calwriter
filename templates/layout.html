@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+<head>
+  <title>{% block title %}{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="{{ url_for('static', filename='editor.js') }}"></script>
+</head>
+<body class="{% if app_settings.dark_mode %}dark{% endif %}" style="--sidebar-bg: {{ app_settings.sidebar_color }}; --text-color: {{ app_settings.text_color }}; --bg-color: {{ app_settings.bg_color }}">
+<div id="sidebar">
+  <a href="{{ url_for('index') }}">Home</a>
+  <a href="{{ url_for('app_settings_page') }}">App Settings</a>
+  <form action="{{ url_for('search') }}" method="get" id="search_form">
+    <input type="text" name="q" placeholder="Search" />
+  </form>
+  <h2>Books</h2>
+  {% macro render_tree(path) %}
+  {% set subs = list_subfolders(path) %}
+  {% set chaps = list_chapters(path) %}
+  <li class="tree-item{% if subs or chaps %} collapsible{% endif %}">
+    <div class="item-line">
+      {% if subs or chaps %}<span class="toggle" onclick="toggleTree(this)"></span>{% endif %}
+      <a href="/folder/{{ path }}">{{ path.split('/')[-1] }}</a>
+    </div>
+    {% if subs or chaps %}
+    <ul>
+      {% for s in subs %}
+        {{ render_tree(path ~ '/' ~ s) }}
+      {% endfor %}
+      {% for c in chaps %}
+        <li class="tree-item"><a href="/folder/{{ path }}/chapter/{{ c }}">{{ c }}</a></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </li>
+  {% endmacro %}
+
+  <ul class="tree">
+    {% for f in folders %}
+      {{ render_tree(f) }}
+    {% endfor %}
+  </ul>
+</div>
+<div id="main">
+  {% with messages = get_flashed_messages() %}
+  {% if messages %}
+  <ul class="flashes">
+    {% for msg in messages %}<li>{{ msg }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</div>
+</body>
+</html>

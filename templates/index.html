@@ -1,0 +1,16 @@
+{% extends "layout.html" %}
+{% block title %}CalWriter{% endblock %}
+{% block content %}
+<h1 class="app-title">CalWriter <span class="version">{{ app_version }}</span></h1>
+<h2>Books</h2>
+<p>Start a new book or open an existing one.</p>
+<ul>
+  {% for folder in folders %}
+  <li><a href="/folder/{{ folder }}">{{ folder }}</a></li>
+  {% endfor %}
+</ul>
+<form action="/folder/create" method="post">
+  <input type="text" name="name" placeholder="New book" />
+  <button type="submit">Create Book</button>
+</form>
+{% endblock %}
