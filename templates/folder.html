@@ -1,16 +1,22 @@
 {% extends "layout.html" %}
 {% block title %}{{ folder }}{% endblock %}
 {% block content %}
-<h1>{{ folder }}</h1>
-{% if author %}
-<p><em>{{ author }}</em></p>
-{% endif %}
-{% if description %}
-<p>{{ description }}</p>
-{% endif %}
+<div class="folder-header">
+  <h1>{{ folder }}</h1>
+  {% if author %}
+  <p class="author"><em>{{ author }}</em></p>
+  {% endif %}
+  {% if description %}
+  <p class="description">{{ description }}</p>
+  {% endif %}
+  <p class="folder-actions">
+    <a href="/folder/{{ folder }}/stats">View Stats</a> |
+    <a href="/folder/{{ folder }}/settings">Book Settings</a>
+  </p>
+</div>
 {% set parent = '/'.join(folder.split('/')[:-1]) %}
 <h2>Sub-Folders</h2>
-<ul>
+<ul class="item-list">
   {% for sub in subfolders %}
   <li><a href="/folder/{{ folder }}/{{ sub }}">{{ sub }}</a></li>
   {% endfor %}
@@ -21,7 +27,7 @@
 </form>
 
 <h2>Chapters</h2>
-<ul id="chapter_list" class="sortable" data-reorder-url="/folder/{{ folder }}/reorder" data-type="chapter">
+<ul id="chapter_list" class="sortable item-list" data-reorder-url="/folder/{{ folder }}/reorder" data-type="chapter">
   {% for chapter in chapters %}
   <li data-name="{{ chapter }}">
     <a href="/folder/{{ folder }}/chapter/{{ chapter }}">{{ chapter }}</a>
@@ -37,10 +43,6 @@
   <input type="text" name="name" placeholder="New chapter" />
   <button type="submit">Create Chapter</button>
 </form>
-
-
-<p><a href="/folder/{{ folder }}/stats">View Stats</a></p>
-<p><a href="/folder/{{ folder }}/settings">Book Settings</a></p>
 
 <form action="/folder/{{ folder }}/delete" method="post" onsubmit="return confirm('Delete this ' ~ (parent and 'sub-folder' or 'book') ~ '?');">
   <button type="submit">Delete {{ parent and 'Sub-Folder' or 'Book' }}</button>

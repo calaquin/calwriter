@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.9 - 2025-07-14 23:15 UTC
+- moved stats and settings links beneath the description
+- restyled book and sub-folder pages
+
 ## 0.4.8 - 2025-07-14 22:55 UTC
 - removed default resize handle on notes sidebar
 - draggable chapter tabs
