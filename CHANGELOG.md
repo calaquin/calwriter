@@ -2,7 +2,7 @@
 
 ## 0.5.0 - 2025-07-15 00:10 UTC
 - moved delete book action to the Book Settings page
-- removed Book Settings link from sub-folder pages
+- sub-folder pages now link to "Sub-Folder Settings"
 - spaced the create chapter and delete sub-folder controls
 - removed Sub-Folders heading on sub-folder pages
 

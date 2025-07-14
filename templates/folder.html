@@ -13,6 +13,8 @@
     <a href="/folder/{{ folder }}/stats">View Stats</a>
     {% if not parent %}
     | <a href="/folder/{{ folder }}/settings">Book Settings</a>
+    {% else %}
+    | <a href="/folder/{{ folder }}/settings">Sub-Folder Settings</a>
     {% endif %}
   </p>
 </div>
