@@ -134,11 +134,7 @@ function renderTabs(container, tabs, currentFolder, currentChapter, currentType)
         tab.dataset.type = t.type;
         const link = document.createElement('a');
         link.textContent = t.name;
-        if (t.type === 'timeline') {
-            link.href = `/folder/${t.folder}/timeline/${t.name}`;
-        } else {
-            link.href = `/folder/${t.folder}/chapter/${t.name}`;
-        }
+        link.href = `/folder/${t.folder}/chapter/${t.name}`;
         tab.appendChild(link);
         const close = document.createElement('button');
         close.textContent = '×';
@@ -151,11 +147,7 @@ function renderTabs(container, tabs, currentFolder, currentChapter, currentType)
             if (t.folder === currentFolder && t.name === currentChapter && t.type === currentType) {
                 if (tabs.length) {
                     const next = tabs[tabs.length-1];
-                    if (next.type === 'timeline') {
-                        window.location.href = `/folder/${next.folder}/timeline/${next.name}`;
-                    } else {
-                        window.location.href = `/folder/${next.folder}/chapter/${next.name}`;
-                    }
+                    window.location.href = `/folder/${next.folder}/chapter/${next.name}`;
                 } else {
                     window.location.href = `/folder/${t.folder}`;
                 }

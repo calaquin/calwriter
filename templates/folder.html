@@ -38,22 +38,6 @@
   <button type="submit">Create Chapter</button>
 </form>
 
-<h2>Timelines</h2>
-<ul id="timeline_list" class="sortable" data-reorder-url="/folder/{{ folder }}/reorder" data-type="timeline">
-  {% for tl in timelines %}
-  <li data-name="{{ tl }}">
-    <a href="/folder/{{ folder }}/timeline/{{ tl }}">{{ tl }}</a>
-    (<a href="{{ url_for('download_timeline_docx', folder=folder, timeline=tl) }}">Download</a>)
-    <form action="/folder/{{ folder }}/timeline/{{ tl }}/delete" method="post" style="display:inline" onsubmit="return confirm('Delete this timeline?');">
-      <button type="submit">Delete</button>
-    </form>
-  </li>
-  {% endfor %}
-</ul>
-<form action="/folder/{{ folder }}/timeline/create" method="post">
-  <input type="text" name="name" placeholder="New timeline" />
-  <button type="submit">Create Timeline</button>
-</form>
 
 <p><a href="/folder/{{ folder }}/stats">View Stats</a></p>
 <p><a href="/folder/{{ folder }}/settings">Book Settings</a></p>

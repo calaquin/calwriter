@@ -1,7 +1,6 @@
 # Changelog
 
 ## 0.4.8 - 2025-07-14 22:55 UTC
-- initial timeline feature with DOCX export
 - removed default resize handle on notes sidebar
 - draggable chapter tabs
 - notes sidebar resizer moved to the left

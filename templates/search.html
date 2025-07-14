@@ -6,11 +6,7 @@
 <ul>
 {% for r in results %}
   <li>
-    {% if r.type == 'timeline' %}
-    <a href="/folder/{{ r.folder }}/timeline/{{ r.timeline }}">{{ r.folder }} / {{ r.timeline }}</a> (timeline)
-    {% else %}
     <a href="/folder/{{ r.folder }}/chapter/{{ r.chapter }}">{{ r.folder }} / {{ r.chapter }}</a>{% if r.type == 'notes' %} (in notes){% endif %}
-    {% endif %}
   </li>
 {% endfor %}
 </ul>
