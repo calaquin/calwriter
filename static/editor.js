@@ -67,4 +67,42 @@ document.addEventListener('DOMContentLoaded', () => {
             }, 500);
         });
     }
+
+    document.querySelectorAll('.sortable').forEach(ul => {
+        enableDragSort(ul);
+    });
 });
+
+function enableDragSort(ul) {
+    let dragging;
+    ul.querySelectorAll('li').forEach(li => {
+        li.draggable = true;
+        li.addEventListener('dragstart', () => {
+            dragging = li;
+        });
+        li.addEventListener('dragover', e => {
+            e.preventDefault();
+            const rect = li.getBoundingClientRect();
+            const next = (e.clientY - rect.top) > (rect.height / 2);
+            ul.insertBefore(dragging, next ? li.nextSibling : li);
+        });
+        li.addEventListener('drop', () => {
+            sendOrder(ul);
+        });
+    });
+}
+
+function sendOrder(ul) {
+    const names = Array.from(ul.children).map(li => li.dataset.name);
+    let url;
+    if (ul.id === 'book_list') {
+        url = '/books/reorder';
+    } else {
+        url = ul.dataset.reorderUrl;
+    }
+    fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order: names, type: ul.dataset.type })
+    });
+}

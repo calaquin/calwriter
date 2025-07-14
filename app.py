@@ -20,7 +20,7 @@ app = Flask(__name__)
 app.secret_key = 'change-this'
 
 # Application version
-VERSION = "0.3.9"
+VERSION = "0.4"
 app.jinja_env.globals['app_version'] = VERSION
 
 DATA_DIR = os.environ.get('DATA_DIR', os.path.join(os.getcwd(), 'data'))
@@ -332,9 +332,14 @@ def delete_folder(folder):
 @app.route('/books/reorder', methods=['POST'])
 def reorder_books():
     """Reorder top level books."""
+    order = load_order('')
+    if request.is_json:
+        items = request.json.get('order', [])
+        order['folders'] = items
+        save_order('', order)
+        return ('', 204)
     name = request.form.get('item_name')
     direction = request.form.get('direction')
-    order = load_order('')
     items = order.get('folders', [])
     if name in items:
         idx = items.index(name)
@@ -413,6 +418,20 @@ def folder_settings(folder):
         subfolders=subfolders,
         chapters=chapters,
     )
+
+
+@app.route('/folder/<path:folder>/reorder', methods=['POST'])
+def reorder_folder(folder):
+    folder_name = sanitize_path(folder)
+    order = load_order(folder_name)
+    if request.is_json:
+        typ = request.json.get('type')
+        items = request.json.get('order', [])
+        if typ in ('folder', 'chapter'):
+            order[f'{typ}s'] = items
+            save_order(folder_name, order)
+        return ('', 204)
+    return redirect(url_for('folder_settings', folder=folder_name))
 
 
 @app.route('/folder/<path:folder>')
@@ -729,6 +748,13 @@ def search():
                         results.append({'folder': rel, 'chapter': chap, 'type': 'notes'})
     folders = list_books()
     return render_template('search.html', q=query, results=results, folders=folders)
+
+
+@app.route('/help')
+def help_page():
+    """Display a basic help page."""
+    folders = list_books()
+    return render_template('help.html', folders=folders)
 
 
 if __name__ == '__main__':

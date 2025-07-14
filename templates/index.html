@@ -3,19 +3,15 @@
 {% block content %}
 <h1 class="app-title">CalWriter <span class="version">Version {{ app_version }}</span></h1>
 <p class="description">CalWriter lets you organize books with chapters and notes right in your browser. Files save automatically and can be downloaded whenever you need them.</p>
-<p><a href="{{ url_for('changelog_page') }}">View Changelog</a></p>
+<p>
+  <a href="{{ url_for('changelog_page') }}">View Changelog</a> |
+  <a href="{{ url_for('help_page') }}">Help</a>
+</p>
 <h2>Books</h2>
 <p>Start a new book or open an existing one.</p>
-<ul>
+<ul id="book_list" class="sortable" data-type="folder">
   {% for folder in folders %}
-  <li>
-    <a href="/folder/{{ folder }}">{{ folder }}</a>
-    <form method="post" action="/books/reorder" style="display:inline">
-      <input type="hidden" name="item_name" value="{{ folder }}" />
-      <button name="direction" value="up">&#8593;</button>
-      <button name="direction" value="down">&#8595;</button>
-    </form>
-  </li>
+  <li data-name="{{ folder }}"><a href="/folder/{{ folder }}">{{ folder }}</a></li>
   {% endfor %}
 </ul>
 <form action="/folder/create" method="post">

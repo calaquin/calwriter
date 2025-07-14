@@ -10,38 +10,26 @@
 </form>
 
 <h2>Reorder and Rename Sub-Folders</h2>
-<ul>
+<ul id="subfolder_list" class="sortable" data-reorder-url="/folder/{{ folder }}/reorder" data-type="folder">
 {% for sub in subfolders %}
-  <li>
+  <li data-name="{{ sub }}">
     {{ sub }}
     <form method="post" action="/folder/{{ folder }}/rename_subfolder/{{ sub }}" style="display:inline">
       <input type="text" name="new_name" value="{{ sub }}" size="10" />
       <button type="submit">Rename</button>
-    </form>
-    <form method="post" style="display:inline">
-      <input type="hidden" name="item_type" value="folder"/>
-      <input type="hidden" name="item_name" value="{{ sub }}"/>
-      <button name="direction" value="up">&#8593;</button>
-      <button name="direction" value="down">&#8595;</button>
     </form>
   </li>
 {% endfor %}
 </ul>
 
 <h2>Reorder and Rename Chapters</h2>
-<ul>
+<ul id="chapter_list" class="sortable" data-reorder-url="/folder/{{ folder }}/reorder" data-type="chapter">
 {% for chap in chapters %}
-  <li>
+  <li data-name="{{ chap }}">
     {{ chap }}
     <form method="post" action="/folder/{{ folder }}/chapter/{{ chap }}/rename" style="display:inline">
       <input type="text" name="new_name" value="{{ chap }}" size="10" />
       <button type="submit">Rename</button>
-    </form>
-    <form method="post" style="display:inline">
-      <input type="hidden" name="item_type" value="chapter"/>
-      <input type="hidden" name="item_name" value="{{ chap }}"/>
-      <button name="direction" value="up">&#8593;</button>
-      <button name="direction" value="down">&#8595;</button>
     </form>
   </li>
 {% endfor %}

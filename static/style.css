@@ -102,3 +102,9 @@ body.dark {
     margin-left: 0.5em;
     color: var(--text-color);
 }
+
+/* drag and drop lists */
+.sortable li {
+    cursor: move;
+    margin-bottom: 4px;
+}
