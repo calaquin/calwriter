@@ -83,6 +83,11 @@ body.dark {
     min-width: 150px;
     max-width: 50%;
 }
+#notes_resizer {
+    width: 6px;
+    cursor: ew-resize;
+    background: #ccc;
+}
 #notes_editor {
     width: 100%;
     box-sizing: border-box;
@@ -107,6 +112,13 @@ body.dark {
     background: var(--bg-color);
     margin-right: 4px;
     color: var(--text-color);
+}
+.toolbar .gap-right {
+    margin-right: 12px;
+}
+.toolbar .gap-left {
+    margin-left: 12px;
+    margin-right: 4px;
 }
 
 #word_count {

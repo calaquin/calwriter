@@ -55,6 +55,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (undoBtn && editor) {
         undoBtn.addEventListener('click', () => execCmd('undo'));
     }
+    const redoBtn = document.getElementById('redo_btn');
+    if (redoBtn && editor) {
+        redoBtn.addEventListener('click', () => execCmd('redo'));
+    }
     const notes = document.getElementById('notes_editor');
     if (notes) {
         let timeout;
@@ -73,14 +77,29 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const sidebar = document.getElementById('notes_sidebar');
-    if (sidebar) {
+    const resizer = document.getElementById('notes_resizer');
+    if (sidebar && resizer) {
         const storedWidth = localStorage.getItem('notesWidth');
         if (storedWidth) sidebar.style.width = storedWidth;
+        let startX, startWidth;
         const saveWidth = () => {
             localStorage.setItem('notesWidth', sidebar.style.width);
         };
-        sidebar.addEventListener('mouseup', saveWidth);
-        sidebar.addEventListener('touchend', saveWidth);
+        const onMove = e => {
+            const dx = e.clientX - startX;
+            sidebar.style.width = (startWidth - dx) + 'px';
+        };
+        const stopDrag = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', stopDrag);
+            saveWidth();
+        };
+        resizer.addEventListener('mousedown', e => {
+            startX = e.clientX;
+            startWidth = sidebar.offsetWidth;
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', stopDrag);
+        });
     }
 
     setupTabs();
@@ -109,6 +128,8 @@ function renderTabs(container, tabs, currentFolder, currentChapter) {
     tabs.forEach((t, i) => {
         const tab = document.createElement('span');
         tab.className = 'chapter-tab' + (t.folder === currentFolder && t.chapter === currentChapter ? ' active' : '');
+        tab.dataset.folder = t.folder;
+        tab.dataset.chapter = t.chapter;
         const link = document.createElement('a');
         link.textContent = t.chapter;
         link.href = `/folder/${t.folder}/chapter/${t.chapter}`;
@@ -134,6 +155,32 @@ function renderTabs(container, tabs, currentFolder, currentChapter) {
         });
         tab.appendChild(close);
         container.appendChild(tab);
+    });
+    enableTabDrag(container, tabs, currentFolder, currentChapter);
+}
+
+function enableTabDrag(container, tabs, currentFolder, currentChapter) {
+    let dragging;
+    Array.from(container.children).forEach((tab, idx) => {
+        tab.draggable = true;
+        tab.addEventListener('dragstart', () => {
+            dragging = tab;
+        });
+        tab.addEventListener('dragover', e => {
+            e.preventDefault();
+            const rect = tab.getBoundingClientRect();
+            const next = (e.clientX - rect.left) > (rect.width / 2);
+            container.insertBefore(dragging, next ? tab.nextSibling : tab);
+        });
+        tab.addEventListener('drop', () => {
+            const newOrder = Array.from(container.children).map(el => ({
+                folder: el.dataset.folder,
+                chapter: el.dataset.chapter
+            }));
+            tabs.splice(0, tabs.length, ...newOrder);
+            localStorage.setItem('open_chapters', JSON.stringify(tabs));
+            renderTabs(container, tabs, currentFolder, currentChapter);
+        });
     });
 }
 

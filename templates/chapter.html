@@ -9,15 +9,17 @@
       <div class="toolbar">
         <button type="button" onclick="execCmd('bold')">B</button>
         <button type="button" onclick="execCmd('italic')">I</button>
-        <button type="button" onclick="execCmd('underline')">U</button>
+        <button type="button" class="gap-right" onclick="execCmd('underline')">U</button>
         <button type="button" onclick="execCmd('insertUnorderedList')">&bull;</button>
         <button type="button" onclick="execCmd('insertOrderedList')">1.</button>
-        <button type="button" id="undo_btn">Undo</button>
+        <button type="button" class="gap-left" id="undo_btn">Undo</button>
+        <button type="button" id="redo_btn">Redo</button>
       </div>
       <div id="chapter_editor" contenteditable="true" data-save-url="{{ url_for('autosave_chapter', folder=folder, chapter=chapter) }}">{{ chapter_html|safe }}</div>
       <input type="hidden" name="text" id="chapter_text" />
     </form>
   </div>
+  <div id="notes_resizer"></div>
   <div id="notes_sidebar">
     <p>Words: <span id="word_count">0</span></p>
     {% if notes_text %}

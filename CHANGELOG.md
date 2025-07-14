@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.6 - 2025-07-14 22:36 UTC
+- draggable chapter tabs
+- notes sidebar resizer moved to the left
+- added redo button and spaced toolbar icons
+- bump version number
+
 ## 0.4.5 - 2025-07-14 22:12 UTC
 - resizable notes sidebar remembers its width
 - added undo button and support for multiple chapter tabs
