@@ -4,7 +4,7 @@
 <div id="chapter_page">
   <div id="chapter_area">
     <h1>{{ folder }} / {{ chapter }}</h1>
-    <div id="chapter_tabs" data-folder="{{ folder }}" data-chapter="{{ chapter }}"></div>
+    <div id="chapter_tabs" data-folder="{{ folder }}" data-chapter="{{ chapter }}" data-type="chapter"></div>
     <form action="{{ url_for('save_chapter', folder=folder, chapter=chapter) }}" method="post" onsubmit="prepareChapter()">
       <div class="toolbar">
         <button type="button" onclick="execCmd('bold')">B</button>

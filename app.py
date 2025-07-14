@@ -20,7 +20,7 @@ app = Flask(__name__)
 app.secret_key = 'change-this'
 
 # Application version
-VERSION = "0.4.6"
+VERSION = "0.4.8"
 app.jinja_env.globals['app_version'] = VERSION
 
 DATA_DIR = os.environ.get('DATA_DIR', os.path.join(os.getcwd(), 'data'))
@@ -146,10 +146,17 @@ def load_order(folder: str) -> dict:
     if os.path.isfile(order_file):
         try:
             with open(order_file) as f:
-                return json.load(f)
+                data = json.load(f)
+                if 'timelines' not in data:
+                    data['timelines'] = []
+                if 'folders' not in data:
+                    data['folders'] = []
+                if 'chapters' not in data:
+                    data['chapters'] = []
+                return data
         except json.JSONDecodeError:
             pass
-    return {'folders': [], 'chapters': []}
+    return {'folders': [], 'chapters': [], 'timelines': []}
 
 
 def save_order(folder: str, order: dict) -> None:
@@ -172,6 +179,23 @@ def list_chapters(folder: str):
     order = load_order(folder).get('chapters', [])
     ordered = [c for c in order if c in chapters]
     remaining = [c for c in chapters if c not in ordered]
+    remaining.sort(key=lambda n: os.path.getctime(os.path.join(path, n)))
+    return ordered + remaining
+
+
+def list_timelines(folder: str):
+    path = os.path.join(DATA_DIR, sanitize_path(folder))
+    if not os.path.isdir(path):
+        return []
+    timelines = [
+        c
+        for c in os.listdir(path)
+        if os.path.isdir(os.path.join(path, c))
+        and os.path.isfile(os.path.join(path, c, 'timeline.html'))
+    ]
+    order = load_order(folder).get('timelines', [])
+    ordered = [t for t in order if t in timelines]
+    remaining = [t for t in timelines if t not in ordered]
     remaining.sort(key=lambda n: os.path.getctime(os.path.join(path, n)))
     return ordered + remaining
 
@@ -222,6 +246,7 @@ app.jinja_env.globals['list_chapters'] = list_chapters
 app.jinja_env.globals['list_notes'] = list_notes
 app.jinja_env.globals['list_subfolders'] = list_subfolders
 app.jinja_env.globals['list_books'] = list_books
+app.jinja_env.globals['list_timelines'] = list_timelines
 
 
 @app.context_processor
@@ -427,7 +452,7 @@ def reorder_folder(folder):
     if request.is_json:
         typ = request.json.get('type')
         items = request.json.get('order', [])
-        if typ in ('folder', 'chapter'):
+        if typ in ('folder', 'chapter', 'timeline'):
             order[f'{typ}s'] = items
             save_order(folder_name, order)
         return ('', 204)
@@ -442,11 +467,12 @@ def view_folder(folder):
         flash('Folder not found')
         return redirect(url_for('index'))
     chapters = list_chapters(folder_name)
+    timelines = list_timelines(folder_name)
     subfolders = list_subfolders(folder_name)
     description = read_description(folder_name)
     author = read_author(folder_name)
     folders = list_books()
-    return render_template('folder.html', folder=folder_name, chapters=chapters, subfolders=subfolders, folders=folders, description=description, author=author)
+    return render_template('folder.html', folder=folder_name, chapters=chapters, timelines=timelines, subfolders=subfolders, folders=folders, description=description, author=author)
 
 
 @app.route('/folder/<path:folder>/chapter/create', methods=['POST'])
@@ -464,6 +490,23 @@ def create_chapter(folder):
         order.setdefault('chapters', []).append(chapter)
         save_order(folder_name, order)
     return redirect(url_for('view_chapter', folder=folder_name, chapter=chapter))
+
+
+@app.route('/folder/<path:folder>/timeline/create', methods=['POST'])
+def create_timeline(folder):
+    folder_name = sanitize_path(folder)
+    name = safe_name(request.form.get('name', ''))
+    if not name:
+        flash('Timeline name required')
+        return redirect(url_for('view_folder', folder=folder_name))
+    path = os.path.join(DATA_DIR, folder_name, name)
+    os.makedirs(path, exist_ok=True)
+    open(os.path.join(path, 'timeline.html'), 'a').close()
+    order = load_order(folder_name)
+    if name not in order.get('timelines', []):
+        order.setdefault('timelines', []).append(name)
+        save_order(folder_name, order)
+    return redirect(url_for('view_timeline', folder=folder_name, timeline=name))
 
 
 @app.route('/folder/<path:folder>/chapter/<chapter>')
@@ -496,6 +539,29 @@ def view_chapter(folder, chapter):
         folders=folders,
         chapters=chapters,
         chapter_html=chapter_html
+    )
+
+
+@app.route('/folder/<path:folder>/timeline/<timeline>')
+def view_timeline(folder, timeline):
+    folder_name = sanitize_path(folder)
+    timeline_name = safe_name(timeline)
+    path = os.path.join(DATA_DIR, folder_name, timeline_name)
+    if not os.path.isdir(path):
+        flash('Timeline not found')
+        return redirect(url_for('view_folder', folder=folder_name))
+    html_file = os.path.join(path, 'timeline.html')
+    timeline_html = ''
+    if os.path.isfile(html_file):
+        with open(html_file) as f:
+            timeline_html = f.read()
+    folders = list_books()
+    return render_template(
+        'timeline.html',
+        folder=folder_name,
+        timeline=timeline_name,
+        folders=folders,
+        timeline_html=timeline_html,
     )
 
 
@@ -603,6 +669,67 @@ def download_chapter_docx(folder, chapter):
         'chapter.docx',
         as_attachment=True,
         download_name=f"{chapter_name}.docx",
+    )
+
+
+@app.route('/folder/<path:folder>/timeline/<timeline>/save', methods=['POST'])
+def save_timeline(folder, timeline):
+    folder_name = sanitize_path(folder)
+    tl_name = safe_name(timeline)
+    text = request.form.get('text', '')
+    path = os.path.join(DATA_DIR, folder_name, tl_name)
+    os.makedirs(path, exist_ok=True)
+    html_path = os.path.join(path, 'timeline.html')
+    with open(html_path, 'w') as f:
+        f.write(text)
+    docx_path = os.path.join(path, 'timeline.docx')
+    html_to_docx(text, docx_path)
+    return redirect(url_for('view_timeline', folder=folder_name, timeline=tl_name))
+
+
+@app.route('/folder/<path:folder>/timeline/<timeline>/autosave', methods=['POST'])
+def autosave_timeline(folder, timeline):
+    folder_name = sanitize_path(folder)
+    tl_name = safe_name(timeline)
+    text = request.form.get('text', '')
+    path = os.path.join(DATA_DIR, folder_name, tl_name)
+    os.makedirs(path, exist_ok=True)
+    html_path = os.path.join(path, 'timeline.html')
+    with open(html_path, 'w') as f:
+        f.write(text)
+    docx_path = os.path.join(path, 'timeline.docx')
+    html_to_docx(text, docx_path)
+    return ('', 204)
+
+
+@app.route('/folder/<path:folder>/timeline/<timeline>/delete', methods=['POST'])
+def delete_timeline(folder, timeline):
+    folder_name = sanitize_path(folder)
+    tl_name = safe_name(timeline)
+    path = os.path.join(DATA_DIR, folder_name, tl_name)
+    if os.path.isdir(path):
+        import shutil
+        shutil.rmtree(path)
+        flash('Timeline deleted')
+        order = load_order(folder_name)
+        if tl_name in order.get('timelines', []):
+            order['timelines'].remove(tl_name)
+            save_order(folder_name, order)
+    else:
+        flash('Timeline not found')
+    return redirect(url_for('view_folder', folder=folder_name))
+
+
+@app.route('/folder/<path:folder>/timeline/<timeline>/timeline.docx')
+def download_timeline_docx(folder, timeline):
+    folder_name = sanitize_path(folder)
+    tl_name = safe_name(timeline)
+    path = os.path.join(DATA_DIR, folder_name, tl_name)
+    return send_from_directory(
+        path,
+        'timeline.docx',
+        as_attachment=True,
+        download_name=f"{tl_name}.docx",
     )
 
 
@@ -739,6 +866,12 @@ def search():
                     text = html_to_text(f.read())
                 if qlower in text.lower():
                     results.append({'folder': rel, 'chapter': chap, 'type': 'chapter'})
+            if 'timeline.html' in files:
+                tl = os.path.basename(root)
+                with open(os.path.join(root, 'timeline.html')) as f:
+                    text = html_to_text(f.read())
+                if qlower in text.lower():
+                    results.append({'folder': rel, 'timeline': tl, 'type': 'timeline'})
             for fn in files:
                 if fn.endswith('_notes.txt'):
                     chap = os.path.basename(root)

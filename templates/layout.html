@@ -16,18 +16,22 @@
   {% macro render_tree(path, level=0) %}
   {% set subs = list_subfolders(path) %}
   {% set chaps = list_chapters(path) %}
-  <li class="tree-item{% if subs or chaps %} collapsible{% endif %}{% if level == 0 %} book-root{% endif %}" data-path="{{ path }}">
+  {% set times = list_timelines(path) %}
+  <li class="tree-item{% if subs or chaps or times %} collapsible{% endif %}{% if level == 0 %} book-root{% endif %}" data-path="{{ path }}">
     <div class="item-line">
       {% if subs or chaps %}<span class="toggle" onclick="toggleTree(this)"></span>{% endif %}
       <a href="/folder/{{ path }}">{{ path.split('/')[-1] }}</a>
     </div>
-    {% if subs or chaps %}
+    {% if subs or chaps or times %}
     <ul>
       {% for s in subs %}
         {{ render_tree(path ~ '/' ~ s, level+1) }}
       {% endfor %}
       {% for c in chaps %}
         <li class="tree-item chapter-item"><a href="/folder/{{ path }}/chapter/{{ c }}">{{ c }}</a></li>
+      {% endfor %}
+      {% for t in times %}
+        <li class="tree-item chapter-item"><a href="/folder/{{ path }}/timeline/{{ t }}">{{ t }}</a></li>
       {% endfor %}
     </ul>
     {% endif %}

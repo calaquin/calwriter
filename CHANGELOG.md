@@ -1,19 +1,23 @@
 # Changelog
 
+## 0.4.8 - 2025-07-14 22:55 UTC
+- initial timeline feature with DOCX export
+- removed default resize handle on notes sidebar
+- draggable chapter tabs
+- notes sidebar resizer moved to the left
+- added redo button and spaced toolbar icons
+
 ## 0.4.6 - 2025-07-14 22:36 UTC
 - draggable chapter tabs
 - notes sidebar resizer moved to the left
 - added redo button and spaced toolbar icons
-- bump version number
 
 ## 0.4.5 - 2025-07-14 22:12 UTC
 - resizable notes sidebar remembers its width
 - added undo button and support for multiple chapter tabs
-- bump version number
 
 ## 0.4.2 - 2025-07-14 18:00 UTC
 - add MIT license and about page
-- bump version number
 
 ## 0.4.1 - 2025-07-14 14:20 UTC
 - allow chapters to be reordered directly on the folder page

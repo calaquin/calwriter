@@ -79,7 +79,6 @@ body.dark {
     overflow-y: auto;
     height: 100%;
     color: var(--text-color);
-    resize: horizontal;
     min-width: 150px;
     max-width: 50%;
 }

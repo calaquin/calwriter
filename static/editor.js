@@ -114,25 +114,31 @@ function setupTabs() {
     if (!tabsEl) return;
     const currentFolder = tabsEl.dataset.folder;
     const currentChapter = tabsEl.dataset.chapter;
-    let tabs = JSON.parse(localStorage.getItem('open_chapters') || '[]');
-    const existing = tabs.find(t => t.folder === currentFolder && t.chapter === currentChapter);
+    const currentType = tabsEl.dataset.type || 'chapter';
+    let tabs = JSON.parse(localStorage.getItem('open_tabs') || '[]');
+    const existing = tabs.find(t => t.folder === currentFolder && t.name === currentChapter && t.type === currentType);
     if (!existing) {
-        tabs.push({folder: currentFolder, chapter: currentChapter});
-        localStorage.setItem('open_chapters', JSON.stringify(tabs));
+        tabs.push({folder: currentFolder, name: currentChapter, type: currentType});
+        localStorage.setItem('open_tabs', JSON.stringify(tabs));
     }
-    renderTabs(tabsEl, tabs, currentFolder, currentChapter);
+    renderTabs(tabsEl, tabs, currentFolder, currentChapter, currentType);
 }
 
-function renderTabs(container, tabs, currentFolder, currentChapter) {
+function renderTabs(container, tabs, currentFolder, currentChapter, currentType) {
     container.innerHTML = '';
     tabs.forEach((t, i) => {
         const tab = document.createElement('span');
-        tab.className = 'chapter-tab' + (t.folder === currentFolder && t.chapter === currentChapter ? ' active' : '');
+        tab.className = 'chapter-tab' + (t.folder === currentFolder && t.name === currentChapter && t.type === currentType ? ' active' : '');
         tab.dataset.folder = t.folder;
-        tab.dataset.chapter = t.chapter;
+        tab.dataset.chapter = t.name;
+        tab.dataset.type = t.type;
         const link = document.createElement('a');
-        link.textContent = t.chapter;
-        link.href = `/folder/${t.folder}/chapter/${t.chapter}`;
+        link.textContent = t.name;
+        if (t.type === 'timeline') {
+            link.href = `/folder/${t.folder}/timeline/${t.name}`;
+        } else {
+            link.href = `/folder/${t.folder}/chapter/${t.name}`;
+        }
         tab.appendChild(link);
         const close = document.createElement('button');
         close.textContent = '×';
@@ -141,25 +147,29 @@ function renderTabs(container, tabs, currentFolder, currentChapter) {
             e.stopPropagation();
             e.preventDefault();
             tabs.splice(i,1);
-            localStorage.setItem('open_chapters', JSON.stringify(tabs));
-            if (t.folder === currentFolder && t.chapter === currentChapter) {
+            localStorage.setItem('open_tabs', JSON.stringify(tabs));
+            if (t.folder === currentFolder && t.name === currentChapter && t.type === currentType) {
                 if (tabs.length) {
                     const next = tabs[tabs.length-1];
-                    window.location.href = `/folder/${next.folder}/chapter/${next.chapter}`;
+                    if (next.type === 'timeline') {
+                        window.location.href = `/folder/${next.folder}/timeline/${next.name}`;
+                    } else {
+                        window.location.href = `/folder/${next.folder}/chapter/${next.name}`;
+                    }
                 } else {
                     window.location.href = `/folder/${t.folder}`;
                 }
             } else {
-                renderTabs(container, tabs, currentFolder, currentChapter);
+                renderTabs(container, tabs, currentFolder, currentChapter, currentType);
             }
         });
         tab.appendChild(close);
         container.appendChild(tab);
     });
-    enableTabDrag(container, tabs, currentFolder, currentChapter);
+    enableTabDrag(container, tabs, currentFolder, currentChapter, currentType);
 }
 
-function enableTabDrag(container, tabs, currentFolder, currentChapter) {
+function enableTabDrag(container, tabs, currentFolder, currentChapter, currentType) {
     let dragging;
     Array.from(container.children).forEach((tab, idx) => {
         tab.draggable = true;
@@ -175,11 +185,12 @@ function enableTabDrag(container, tabs, currentFolder, currentChapter) {
         tab.addEventListener('drop', () => {
             const newOrder = Array.from(container.children).map(el => ({
                 folder: el.dataset.folder,
-                chapter: el.dataset.chapter
+                name: el.dataset.chapter,
+                type: el.dataset.type || 'chapter'
             }));
             tabs.splice(0, tabs.length, ...newOrder);
-            localStorage.setItem('open_chapters', JSON.stringify(tabs));
-            renderTabs(container, tabs, currentFolder, currentChapter);
+            localStorage.setItem('open_tabs', JSON.stringify(tabs));
+            renderTabs(container, tabs, currentFolder, currentChapter, currentType);
         });
     });
 }
