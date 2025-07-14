@@ -9,6 +9,10 @@
   <button type="submit">Save Settings</button>
 </form>
 
+<form class="delete-folder-form" action="/folder/{{ folder }}/delete" method="post" onsubmit="return confirm('Delete this book?');">
+  <button type="submit">Delete Book</button>
+</form>
+
 <h2>Reorder and Rename Sub-Folders</h2>
 <ul id="subfolder_list" class="sortable" data-reorder-url="/folder/{{ folder }}/reorder" data-type="folder">
 {% for sub in subfolders %}

@@ -10,12 +10,16 @@
   <p class="description">{{ description }}</p>
   {% endif %}
   <p class="folder-actions">
-    <a href="/folder/{{ folder }}/stats">View Stats</a> |
-    <a href="/folder/{{ folder }}/settings">Book Settings</a>
+    <a href="/folder/{{ folder }}/stats">View Stats</a>
+    {% if not parent %}
+    | <a href="/folder/{{ folder }}/settings">Book Settings</a>
+    {% endif %}
   </p>
 </div>
 {% set parent = '/'.join(folder.split('/')[:-1]) %}
+{% if not parent %}
 <h2>Sub-Folders</h2>
+{% endif %}
 <ul class="item-list">
   {% for sub in subfolders %}
   <li><a href="/folder/{{ folder }}/{{ sub }}">{{ sub }}</a></li>
@@ -43,8 +47,9 @@
   <input type="text" name="name" placeholder="New chapter" />
   <button type="submit">Create Chapter</button>
 </form>
-
-<form action="/folder/{{ folder }}/delete" method="post" onsubmit="return confirm('Delete this ' ~ (parent and 'sub-folder' or 'book') ~ '?');">
-  <button type="submit">Delete {{ parent and 'Sub-Folder' or 'Book' }}</button>
+{% if parent %}
+<form class="delete-folder-form" action="/folder/{{ folder }}/delete" method="post" onsubmit="return confirm('Delete this sub-folder?');">
+  <button type="submit">Delete Sub-Folder</button>
 </form>
+{% endif %}
 {% endblock %}
