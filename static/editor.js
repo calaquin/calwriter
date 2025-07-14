@@ -23,14 +23,22 @@ function updateWordCount() {
 function copyChapter() {
     const editor = document.getElementById('chapter_editor');
     if (editor) {
-        navigator.clipboard.writeText(editor.innerText);
+        navigator.clipboard.writeText(editor.innerText).then(() => {
+            alert('Chapter copied to clipboard');
+        }).catch(() => {
+            alert('Failed to copy chapter');
+        });
     }
 }
 
 function copyNotes() {
     const notes = document.getElementById('notes_editor');
     if (notes) {
-        navigator.clipboard.writeText(notes.value);
+        navigator.clipboard.writeText(notes.value).then(() => {
+            alert('Notes copied to clipboard');
+        }).catch(() => {
+            alert('Failed to copy notes');
+        });
     }
 }
 

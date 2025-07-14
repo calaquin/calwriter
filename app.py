@@ -20,7 +20,7 @@ app = Flask(__name__)
 app.secret_key = 'change-this'
 
 # Application version
-VERSION = "0.3.6"
+VERSION = "0.3.7"
 app.jinja_env.globals['app_version'] = VERSION
 
 DATA_DIR = os.environ.get('DATA_DIR', os.path.join(os.getcwd(), 'data'))
@@ -233,6 +233,20 @@ def write_description(folder: str, text: str) -> None:
     with open(path, 'w') as f:
         f.write(text)
 
+def read_author(folder: str) -> str:
+    """Return author text for a folder if present."""
+    path = os.path.join(DATA_DIR, sanitize_path(folder), 'author.txt')
+    if os.path.isfile(path):
+        with open(path) as f:
+            return f.read()
+    return ''
+
+def write_author(folder: str, text: str) -> None:
+    os.makedirs(os.path.join(DATA_DIR, sanitize_path(folder)), exist_ok=True)
+    path = os.path.join(DATA_DIR, sanitize_path(folder), 'author.txt')
+    with open(path, 'w') as f:
+        f.write(text)
+
 
 @app.route('/')
 def index():
@@ -303,6 +317,7 @@ def folder_settings(folder):
         flash('Book not found')
         return redirect(url_for('index'))
     description = read_description(folder_name)
+    author = read_author(folder_name)
     order = load_order(folder_name)
     if request.method == 'POST':
         if 'item_type' in request.form:
@@ -321,6 +336,7 @@ def folder_settings(folder):
             return redirect(url_for('folder_settings', folder=folder_name))
         new_name = safe_name(request.form.get('name', folder_name.split('/')[-1]))
         desc = request.form.get('description', '')
+        author_text = request.form.get('author', '')
         if new_name and new_name != folder_name.split('/')[-1]:
             new_path = os.path.join(DATA_DIR, os.path.dirname(folder_name), new_name)
             if os.path.exists(new_path):
@@ -339,6 +355,7 @@ def folder_settings(folder):
                 path = new_path
                 flash('Book renamed')
         write_description(folder_name, desc)
+        write_author(folder_name, author_text)
         return redirect(url_for('view_folder', folder=folder_name))
     subfolders = list_subfolders(folder_name)
     chapters = list_chapters(folder_name)
@@ -347,6 +364,7 @@ def folder_settings(folder):
         folder=folder_name,
         name=folder_name.split('/')[-1],
         description=description,
+        author=author,
         subfolders=subfolders,
         chapters=chapters,
     )
@@ -364,7 +382,7 @@ def view_folder(folder):
     description = read_description(folder_name)
     folders = [f for f in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, f))]
     folders.sort(key=lambda n: os.path.getctime(os.path.join(DATA_DIR, n)))
-    return render_template('folder.html', folder=folder_name, chapters=chapters, subfolders=subfolders, folders=folders, description=description)
+    return render_template('folder.html', folder=folder_name, chapters=chapters, subfolders=subfolders, folders=folders, description=description, author=author)
 
 
 @app.route('/folder/<path:folder>/chapter/create', methods=['POST'])

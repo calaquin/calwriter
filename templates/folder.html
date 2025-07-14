@@ -5,6 +5,9 @@
 {% if description %}
 <p>{{ description }}</p>
 {% endif %}
+{% if author %}
+<p><em>Author: {{ author }}</em></p>
+{% endif %}
 <h2>Sub-Folders</h2>
 <ul>
   {% for sub in subfolders %}
