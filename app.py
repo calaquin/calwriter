@@ -20,7 +20,7 @@ app = Flask(__name__)
 app.secret_key = 'change-this'
 
 # Application version
-VERSION = "0.3.8"
+VERSION = "0.3.9"
 app.jinja_env.globals['app_version'] = VERSION
 
 DATA_DIR = os.environ.get('DATA_DIR', os.path.join(os.getcwd(), 'data'))
@@ -193,6 +193,16 @@ def list_subfolders(folder: str):
     return ordered + remaining
 
 
+def list_books():
+    path = DATA_DIR
+    books = [f for f in os.listdir(path) if os.path.isdir(os.path.join(path, f))]
+    order = load_order('').get('folders', [])
+    ordered = [b for b in order if b in books]
+    remaining = [b for b in books if b not in ordered]
+    remaining.sort(key=lambda n: os.path.getctime(os.path.join(path, n)))
+    return ordered + remaining
+
+
 def note_filename(chapter: str) -> str:
     """Return the standard notes filename for a chapter."""
     return f"{chapter.replace(' ', '_')}_notes.txt"
@@ -211,6 +221,7 @@ def list_notes(folder: str, chapter: str):
 app.jinja_env.globals['list_chapters'] = list_chapters
 app.jinja_env.globals['list_notes'] = list_notes
 app.jinja_env.globals['list_subfolders'] = list_subfolders
+app.jinja_env.globals['list_books'] = list_books
 
 
 @app.context_processor
@@ -250,8 +261,7 @@ def write_author(folder: str, text: str) -> None:
 
 @app.route('/')
 def index():
-    folders = [f for f in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, f))]
-    folders.sort(key=lambda n: os.path.getctime(os.path.join(DATA_DIR, n)))
+    folders = list_books()
     return render_template('index.html', folders=folders)
 
 
@@ -285,6 +295,10 @@ def create_folder():
         return redirect(url_for('index'))
     path = os.path.join(DATA_DIR, name)
     os.makedirs(path, exist_ok=True)
+    order = load_order('')
+    if name not in order.get('folders', []):
+        order.setdefault('folders', []).append(name)
+        save_order('', order)
     return redirect(url_for('view_folder', folder=name))
 
 
@@ -306,6 +320,30 @@ def delete_folder(folder):
         flash('Book not found')
     if parent:
         return redirect(url_for('view_folder', folder=parent))
+    else:
+        order = load_order('')
+        bname = os.path.basename(folder_name)
+        if bname in order.get('folders', []):
+            order['folders'].remove(bname)
+            save_order('', order)
+    return redirect(url_for('index'))
+
+
+@app.route('/books/reorder', methods=['POST'])
+def reorder_books():
+    """Reorder top level books."""
+    name = request.form.get('item_name')
+    direction = request.form.get('direction')
+    order = load_order('')
+    items = order.get('folders', [])
+    if name in items:
+        idx = items.index(name)
+        if direction == 'up' and idx > 0:
+            items[idx], items[idx-1] = items[idx-1], items[idx]
+        elif direction == 'down' and idx < len(items)-1:
+            items[idx], items[idx+1] = items[idx+1], items[idx]
+        order['folders'] = items
+        save_order('', order)
     return redirect(url_for('index'))
 
 
@@ -351,6 +389,13 @@ def folder_settings(folder):
                         idx = parent_order['folders'].index(old)
                         parent_order['folders'][idx] = new_name
                         save_order(parent, parent_order)
+                else:
+                    root_order = load_order('')
+                    old = folder_name.split('/')[-1]
+                    if old in root_order.get('folders', []):
+                        idx = root_order['folders'].index(old)
+                        root_order['folders'][idx] = new_name
+                        save_order('', root_order)
                 folder_name = os.path.join(os.path.dirname(folder_name), new_name).strip('/')
                 path = new_path
                 flash('Book renamed')
@@ -381,8 +426,7 @@ def view_folder(folder):
     subfolders = list_subfolders(folder_name)
     description = read_description(folder_name)
     author = read_author(folder_name)
-    folders = [f for f in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, f))]
-    folders.sort(key=lambda n: os.path.getctime(os.path.join(DATA_DIR, n)))
+    folders = list_books()
     return render_template('folder.html', folder=folder_name, chapters=chapters, subfolders=subfolders, folders=folders, description=description, author=author)
 
 
@@ -423,8 +467,7 @@ def view_chapter(folder, chapter):
         with open(notes_file) as f:
             notes_text = f.read()
 
-    folders = [f for f in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, f))]
-    folders.sort(key=lambda n: os.path.getctime(os.path.join(DATA_DIR, n)))
+    folders = list_books()
     chapters = list_chapters(folder_name)
     return render_template(
         'chapter.html',
@@ -639,8 +682,7 @@ def folder_stats(folder):
         sorted_days = [d for d in sorted_days if d >= cutoff]
     chart_labels = sorted(sorted_days)
     chart_data = [words_per_day[d] for d in chart_labels]
-    folders = [f for f in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, f))]
-    folders.sort(key=lambda n: os.path.getctime(os.path.join(DATA_DIR, n)))
+    folders = list_books()
     return render_template(
         'stats.html',
         folder=folder_name,
@@ -651,6 +693,17 @@ def folder_stats(folder):
         chart_data=chart_data,
         days=days,
     )
+
+
+@app.route('/changelog')
+def changelog_page():
+    """Display the changelog markdown."""
+    path = os.path.join(os.path.dirname(__file__), 'CHANGELOG.md')
+    content = ''
+    if os.path.isfile(path):
+        with open(path) as f:
+            content = f.read()
+    return render_template('changelog.html', content=content)
 
 
 @app.route('/search')
@@ -674,8 +727,7 @@ def search():
                         text = nf.read()
                     if qlower in text.lower():
                         results.append({'folder': rel, 'chapter': chap, 'type': 'notes'})
-    folders = [f for f in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, f))]
-    folders.sort(key=lambda n: os.path.getctime(os.path.join(DATA_DIR, n)))
+    folders = list_books()
     return render_template('search.html', q=query, results=results, folders=folders)
 
 

@@ -92,6 +92,7 @@ body.dark {
 .tree .toggle::before { content: '\25BC'; }
 .tree li.collapsed > .item-line > .toggle::before { content: '\25B6'; }
 .tree li.collapsed > ul { display: none; }
+.tree > li > .item-line > a { font-weight: bold; }
 
 .app-title {
     margin: 0 0 0.5em 0;

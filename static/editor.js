@@ -5,6 +5,11 @@ function toggleTree(el) {
     const li = el.closest('li');
     if (li) {
         li.classList.toggle('collapsed');
+        const path = li.dataset.path;
+        if (path) {
+            const collapsed = li.classList.contains('collapsed');
+            localStorage.setItem('collapsed:' + path, collapsed ? '1' : '0');
+        }
     }
 }
 function prepareChapter() {
@@ -22,6 +27,12 @@ function updateWordCount() {
 
 
 document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('#sidebar .tree-item').forEach(li => {
+        const path = li.dataset.path;
+        if (path && localStorage.getItem('collapsed:' + path) === '1') {
+            li.classList.add('collapsed');
+        }
+    });
     const editor = document.getElementById('chapter_editor');
     if (editor) {
         let timeout;
