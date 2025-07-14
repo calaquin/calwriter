@@ -4,10 +4,20 @@
 <h1>Stats for {{ folder }}</h1>
 <p>Total words: {{ total_words }}</p>
 <h2>Words per day</h2>
-<ul>
-{% for day, count in words_per_day.items() %}
-  <li>{{ day }}: {{ count }}</li>
-{% endfor %}
-</ul>
+<form method="get" style="margin-bottom:1em;">
+  <label>Days to show: <input type="number" name="days" value="{{ days }}" min="1"></label>
+  <button type="submit">Update</button>
+</form>
+<canvas id="wordChart" width="400" height="200"></canvas>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  const labels = {{ chart_labels|tojson }};
+  const data = {{ chart_data|tojson }};
+  new Chart(document.getElementById('wordChart'), {
+    type: 'bar',
+    data: { labels: labels, datasets: [{ label: 'Words', data: data }] },
+    options: { scales: { y: { beginAtZero: true } } }
+  });
+</script>
 <a href="{{ url_for('view_folder', folder=folder) }}">Back to Book</a>
 {% endblock %}

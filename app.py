@@ -1,7 +1,16 @@
 import os
 import datetime
 import json
-from flask import Flask, render_template, request, redirect, url_for, send_from_directory, flash
+from flask import (
+    Flask,
+    render_template,
+    request,
+    redirect,
+    url_for,
+    send_from_directory,
+    send_file,
+    flash,
+)
 import re
 from bs4 import BeautifulSoup
 from docx import Document
@@ -11,7 +20,7 @@ app = Flask(__name__)
 app.secret_key = 'change-this'
 
 # Application version
-VERSION = "0.3.2"
+VERSION = "0.3.6"
 app.jinja_env.globals['app_version'] = VERSION
 
 DATA_DIR = os.environ.get('DATA_DIR', os.path.join(os.getcwd(), 'data'))
@@ -88,6 +97,42 @@ def html_to_docx(html: str, path: str) -> None:
     for child in soup.children:
         process(child, p)
     doc.save(path)
+
+
+def append_html_to_docx(doc: Document, html: str) -> None:
+    """Append HTML content to an existing DOCX document."""
+    soup = BeautifulSoup(html, "html.parser")
+
+    def process(elem, paragraph, formatting=None):
+        if formatting is None:
+            formatting = {}
+        if isinstance(elem, str):
+            run = paragraph.add_run(elem)
+            run.bold = formatting.get("bold", False)
+            run.italic = formatting.get("italic", False)
+            run.underline = formatting.get("underline", False)
+            return
+        tag = elem.name
+        fmt = formatting.copy()
+        if tag in ("strong", "b"):
+            fmt["bold"] = True
+        if tag in ("em", "i"):
+            fmt["italic"] = True
+        if tag == "u":
+            fmt["underline"] = True
+        if tag in ("p", "div", "br"):
+            p = doc.add_paragraph()
+            p.paragraph_format.first_line_indent = Inches(0.5)
+            for child in elem.children:
+                process(child, p, fmt)
+            return
+        for child in elem.children:
+            process(child, paragraph, fmt)
+
+    p = doc.add_paragraph()
+    p.paragraph_format.first_line_indent = Inches(0.5)
+    for child in soup.children:
+        process(child, p)
 
 
 def sanitize_path(folder: str) -> str:
@@ -435,6 +480,29 @@ def delete_chapter(folder, chapter):
     return redirect(url_for('view_folder', folder=folder_name))
 
 
+@app.route('/folder/<path:folder>/chapter/<chapter>/rename', methods=['POST'])
+def rename_chapter(folder, chapter):
+    folder_name = sanitize_path(folder)
+    chapter_name = safe_name(chapter)
+    new_name = safe_name(request.form.get('new_name', ''))
+    if not new_name:
+        flash('New name required')
+        return redirect(url_for('folder_settings', folder=folder_name))
+    old_path = os.path.join(DATA_DIR, folder_name, chapter_name)
+    new_path = os.path.join(DATA_DIR, folder_name, new_name)
+    if os.path.exists(new_path):
+        flash('Name already exists')
+    else:
+        os.rename(old_path, new_path)
+        order = load_order(folder_name)
+        if chapter_name in order.get('chapters', []):
+            idx = order['chapters'].index(chapter_name)
+            order['chapters'][idx] = new_name
+            save_order(folder_name, order)
+        flash('Chapter renamed')
+    return redirect(url_for('folder_settings', folder=folder_name))
+
+
 @app.route('/folder/<path:folder>/chapter/<chapter>/notes/download')
 def download_note(folder, chapter):
     folder_name = sanitize_path(folder)
@@ -457,6 +525,40 @@ def download_chapter_docx(folder, chapter):
     )
 
 
+@app.route('/folder/<path:folder>/combined.docx')
+def download_combined_docx(folder):
+    """Download a DOCX containing all chapters in a folder."""
+    folder_name = sanitize_path(folder)
+    path = os.path.join(DATA_DIR, folder_name)
+    if not os.path.isdir(path):
+        flash('Folder not found')
+        return redirect(url_for('index'))
+    chapters = list_chapters(folder_name)
+    if not chapters:
+        flash('No chapters to combine')
+        return redirect(url_for('view_folder', folder=folder_name))
+    doc = Document()
+    for idx, chap in enumerate(chapters):
+        doc.add_heading(chap, level=1)
+        html_file = os.path.join(path, chap, 'chapter.html')
+        if os.path.isfile(html_file):
+            with open(html_file) as f:
+                append_html_to_docx(doc, f.read())
+        if idx < len(chapters) - 1:
+            doc.add_page_break()
+    from io import BytesIO
+    bio = BytesIO()
+    doc.save(bio)
+    bio.seek(0)
+    filename = f"{folder_name.split('/')[-1]}_combined.docx"
+    return send_file(
+        bio,
+        as_attachment=True,
+        download_name=filename,
+        mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    )
+
+
 @app.route('/folder/<path:folder>/folder/create', methods=['POST'])
 def create_subfolder(folder):
     folder_name = sanitize_path(folder)
@@ -473,10 +575,34 @@ def create_subfolder(folder):
     return redirect(url_for('view_folder', folder=f"{folder_name}/{name}"))
 
 
+@app.route('/folder/<path:folder>/rename_subfolder/<sub>', methods=['POST'])
+def rename_subfolder(folder, sub):
+    folder_name = sanitize_path(folder)
+    sub_name = safe_name(sub)
+    new_name = safe_name(request.form.get('new_name', ''))
+    if not new_name:
+        flash('New name required')
+        return redirect(url_for('folder_settings', folder=folder_name))
+    old_path = os.path.join(DATA_DIR, folder_name, sub_name)
+    new_path = os.path.join(DATA_DIR, folder_name, new_name)
+    if os.path.exists(new_path):
+        flash('Name already exists')
+    else:
+        os.rename(old_path, new_path)
+        order = load_order(folder_name)
+        if sub_name in order.get('folders', []):
+            idx = order['folders'].index(sub_name)
+            order['folders'][idx] = new_name
+            save_order(folder_name, order)
+        flash('Sub-folder renamed')
+    return redirect(url_for('folder_settings', folder=folder_name))
+
+
 @app.route('/folder/<path:folder>/stats')
 def folder_stats(folder):
     folder_name = sanitize_path(folder)
     path = os.path.join(DATA_DIR, folder_name)
+    days = int(request.args.get('days', 7))
     total_words = 0
     words_per_day = {}
     for root, dirs, files in os.walk(path):
@@ -488,9 +614,24 @@ def folder_stats(folder):
             total_words += count
             day = datetime.date.fromtimestamp(os.path.getmtime(html_path)).isoformat()
             words_per_day[day] = words_per_day.get(day, 0) + count
+    sorted_days = sorted(words_per_day.keys())
+    if days > 0:
+        cutoff = (datetime.date.today() - datetime.timedelta(days=days-1)).isoformat()
+        sorted_days = [d for d in sorted_days if d >= cutoff]
+    chart_labels = sorted(sorted_days)
+    chart_data = [words_per_day[d] for d in chart_labels]
     folders = [f for f in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, f))]
     folders.sort(key=lambda n: os.path.getctime(os.path.join(DATA_DIR, n)))
-    return render_template('stats.html', folder=folder_name, total_words=total_words, words_per_day=words_per_day, folders=folders)
+    return render_template(
+        'stats.html',
+        folder=folder_name,
+        total_words=total_words,
+        words_per_day=words_per_day,
+        folders=folders,
+        chart_labels=chart_labels,
+        chart_data=chart_data,
+        days=days,
+    )
 
 
 @app.route('/search')

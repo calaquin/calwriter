@@ -28,6 +28,7 @@
   </li>
   {% endfor %}
 </ul>
+<p><a href="/folder/{{ folder }}/combined.docx">Download All Chapters</a></p>
 <form action="/folder/{{ folder }}/chapter/create" method="post">
   <input type="text" name="name" placeholder="New chapter" />
   <button type="submit">Create Chapter</button>

@@ -8,10 +8,15 @@
   <button type="submit">Save Settings</button>
 </form>
 
-<h2>Reorder Sub-Folders</h2>
+<h2>Reorder and Rename Sub-Folders</h2>
 <ul>
 {% for sub in subfolders %}
-  <li>{{ sub }}
+  <li>
+    {{ sub }}
+    <form method="post" action="/folder/{{ folder }}/rename_subfolder/{{ sub }}" style="display:inline">
+      <input type="text" name="new_name" value="{{ sub }}" size="10" />
+      <button type="submit">Rename</button>
+    </form>
     <form method="post" style="display:inline">
       <input type="hidden" name="item_type" value="folder"/>
       <input type="hidden" name="item_name" value="{{ sub }}"/>
@@ -22,10 +27,15 @@
 {% endfor %}
 </ul>
 
-<h2>Reorder Chapters</h2>
+<h2>Reorder and Rename Chapters</h2>
 <ul>
 {% for chap in chapters %}
-  <li>{{ chap }}
+  <li>
+    {{ chap }}
+    <form method="post" action="/folder/{{ folder }}/chapter/{{ chap }}/rename" style="display:inline">
+      <input type="text" name="new_name" value="{{ chap }}" size="10" />
+      <button type="submit">Rename</button>
+    </form>
     <form method="post" style="display:inline">
       <input type="hidden" name="item_type" value="chapter"/>
       <input type="hidden" name="item_name" value="{{ chap }}"/>

@@ -20,6 +20,20 @@ function updateWordCount() {
     if (counter) counter.textContent = words.length;
 }
 
+function copyChapter() {
+    const editor = document.getElementById('chapter_editor');
+    if (editor) {
+        navigator.clipboard.writeText(editor.innerText);
+    }
+}
+
+function copyNotes() {
+    const notes = document.getElementById('notes_editor');
+    if (notes) {
+        navigator.clipboard.writeText(notes.value);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const editor = document.getElementById('chapter_editor');
     if (editor) {
