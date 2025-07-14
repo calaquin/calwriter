@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1 - 2025-07-14 14:20 UTC
+- allow chapters to be reordered directly on the folder page
+- fixed delete button text for sub-folders
+- chapters appear indented in the sidebar
+- expanded help with instructions for drag and drop
+
 ## 0.4 - 2025-07-14 14:00 UTC
 - added drag and drop reordering for books and sub-folders
 - simplified documentation and added help link

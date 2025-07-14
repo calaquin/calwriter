@@ -26,7 +26,7 @@
         {{ render_tree(path ~ '/' ~ s, level+1) }}
       {% endfor %}
       {% for c in chaps %}
-        <li class="tree-item"><a href="/folder/{{ path }}/chapter/{{ c }}">{{ c }}</a></li>
+        <li class="tree-item chapter-item"><a href="/folder/{{ path }}/chapter/{{ c }}">{{ c }}</a></li>
       {% endfor %}
     </ul>
     {% endif %}
