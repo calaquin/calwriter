@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.8.1 - 2025-07-15 16:24 UTC
+- tab group titles appear above their tabs
+- new tabs auto-sort by book
+- chapter text scrolls independently of toolbar
+
 ## 0.5.8 - 2025-07-15 16:11 UTC
 - tabs grouped by book in the chapter tab bar
 

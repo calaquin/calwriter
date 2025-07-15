@@ -130,7 +130,22 @@ function setupTabs() {
     const existing = tabs.find(t => t.folder === currentFolder && t.name === currentChapter && t.type === currentType);
     if (!existing) {
         tabs.push({folder: currentFolder, name: currentChapter, type: currentType});
+        tabs.sort((a, b) => {
+            const ra = a.folder.split('/')[0];
+            const rb = b.folder.split('/')[0];
+            if (ra < rb) return -1;
+            if (ra > rb) return 1;
+            return a.name.localeCompare(b.name);
+        });
         localStorage.setItem('open_tabs', JSON.stringify(tabs));
+    } else {
+        tabs.sort((a, b) => {
+            const ra = a.folder.split('/')[0];
+            const rb = b.folder.split('/')[0];
+            if (ra < rb) return -1;
+            if (ra > rb) return 1;
+            return a.name.localeCompare(b.name);
+        });
     }
     renderTabs(tabsEl, tabs, currentFolder, currentChapter, currentType);
     window.addEventListener('storage', (e) => {
@@ -151,51 +166,6 @@ function setupTabs() {
     });
 }
 
-function renderTabs(container, tabs, currentFolder, currentChapter, currentType) {
-    container.innerHTML = '';
-    let lastRoot = null;
-    tabs.forEach((t, i) => {
-        const root = t.folder.split('/')[0];
-        if (root !== lastRoot) {
-            const title = document.createElement('span');
-            title.className = 'tab-group-title';
-            title.textContent = root;
-            container.appendChild(title);
-            lastRoot = root;
-        }
-        const tab = document.createElement('span');
-        tab.className = 'chapter-tab' + (t.folder === currentFolder && t.name === currentChapter && t.type === currentType ? ' active' : '');
-        tab.dataset.folder = t.folder;
-        tab.dataset.chapter = t.name;
-        tab.dataset.type = t.type;
-        const link = document.createElement('a');
-        link.textContent = t.name;
-        link.href = `/folder/${t.folder}/chapter/${t.name}`;
-        tab.appendChild(link);
-        const close = document.createElement('button');
-        close.textContent = '×';
-        close.className = 'close-tab';
-        close.addEventListener('click', (e) => {
-            e.stopPropagation();
-            e.preventDefault();
-            tabs.splice(i,1);
-            localStorage.setItem('open_tabs', JSON.stringify(tabs));
-            if (t.folder === currentFolder && t.name === currentChapter && t.type === currentType) {
-                if (tabs.length) {
-                    const next = tabs[tabs.length-1];
-                    window.location.href = `/folder/${next.folder}/chapter/${next.name}`;
-                } else {
-                    window.location.href = `/folder/${t.folder}`;
-                }
-            } else {
-                renderTabs(container, tabs, currentFolder, currentChapter, currentType);
-            }
-        });
-        tab.appendChild(close);
-        container.appendChild(tab);
-    });
-    enableTabDrag(container, tabs, currentFolder, currentChapter, currentType);
-}
 
 function enableTabDrag(container, tabs, currentFolder, currentChapter, currentType) {
     let dragging;
@@ -208,7 +178,7 @@ function enableTabDrag(container, tabs, currentFolder, currentChapter, currentTy
             e.preventDefault();
             const rect = tab.getBoundingClientRect();
             const next = (e.clientX - rect.left) > (rect.width / 2);
-            container.insertBefore(dragging, next ? tab.nextSibling : tab);
+            tab.parentNode.insertBefore(dragging, next ? tab.nextSibling : tab);
         });
         tab.addEventListener('drop', () => {
             const newOrder = Array.from(container.querySelectorAll('.chapter-tab')).map(el => ({
@@ -255,4 +225,61 @@ function sendOrder(ul) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ order: names, type: ul.dataset.type })
     });
+}
+function renderTabs(container, tabs, currentFolder, currentChapter, currentType) {
+    container.innerHTML = '';
+    const groups = {};
+    tabs.forEach(t => {
+        const root = t.folder.split('/')[0];
+        if (!groups[root]) groups[root] = [];
+        groups[root].push(t);
+    });
+    const orderedRoots = [];
+    tabs.forEach(t => {
+        const root = t.folder.split('/')[0];
+        if (!orderedRoots.includes(root)) orderedRoots.push(root);
+    });
+    orderedRoots.forEach(root => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'tab-group';
+        const title = document.createElement('div');
+        title.className = 'tab-group-title';
+        title.textContent = root;
+        wrapper.appendChild(title);
+        groups[root].forEach(t => {
+            const tab = document.createElement('span');
+            tab.className = 'chapter-tab' + (t.folder === currentFolder && t.name == currentChapter && t.type === currentType ? ' active' : '');
+            tab.dataset.folder = t.folder;
+            tab.dataset.chapter = t.name;
+            tab.dataset.type = t.type;
+            const link = document.createElement('a');
+            link.textContent = t.name;
+            link.href = `/folder/${t.folder}/chapter/${t.name}`;
+            tab.appendChild(link);
+            const close = document.createElement('button');
+            close.textContent = '\u00d7';
+            close.className = 'close-tab';
+            close.addEventListener('click', e => {
+                e.stopPropagation();
+                e.preventDefault();
+                const idx = tabs.findIndex(pt => pt.folder === t.folder && pt.name === t.name && pt.type === t.type);
+                if (idx !== -1) tabs.splice(idx, 1);
+                localStorage.setItem('open_tabs', JSON.stringify(tabs));
+                if (t.folder === currentFolder && t.name === currentChapter && t.type === currentType) {
+                    if (tabs.length) {
+                        const next = tabs[tabs.length - 1];
+                        window.location.href = `/folder/${next.folder}/chapter/${next.name}`;
+                    } else {
+                        window.location.href = `/folder/${t.folder}`;
+                    }
+                } else {
+                    renderTabs(container, tabs, currentFolder, currentChapter, currentType);
+                }
+            });
+            tab.appendChild(close);
+            wrapper.appendChild(tab);
+        });
+        container.appendChild(wrapper);
+    });
+    enableTabDrag(container, tabs, currentFolder, currentChapter, currentType);
 }
