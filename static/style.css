@@ -71,7 +71,7 @@ body.dark {
 .chapter-tab {
     display: inline-block;
     background: var(--sidebar-bg);
-    padding: 2px 6px;
+    padding: 1px 6px;
     margin-right: 4px;
     border: 1px solid #ccc;
     border-bottom: none;
@@ -83,7 +83,7 @@ body.dark {
 .tab-group {
     display: inline-block;
     margin-right: 12px;
-    padding: 2px 4px;
+    padding: 0 4px;
     border: 1px solid #bbb;
     border-radius: 4px;
     text-align: center;
@@ -94,7 +94,7 @@ body.dark {
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-bottom: 2px;
+    margin-bottom: 0;
     padding: 0 2px;
 }
 .close-group {
