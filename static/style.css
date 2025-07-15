@@ -59,7 +59,7 @@ body.dark {
 #chapter_form {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    flex: 1;
 }
 #chapter_editor {
     flex: 1;

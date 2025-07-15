@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.5.8.4 - 2025-07-15 17:10 UTC
+- fix chapter page scrolling so full text is accessible
+
 ## 0.5.8.3 - 2025-07-15 16:54 UTC
 - improved chapter page with a new font toolbar
 
