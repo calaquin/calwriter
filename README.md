@@ -20,14 +20,14 @@ CalWriter is a simple Flask application for drafting novels.
 
 ## Running with Docker
 
-Build the image and run it:
+Pull the prebuilt image and run it:
 
 ```bash
-docker build -t calwriter:latest .
+docker pull ghcr.io/calaquin/calwriter:latest
 docker run -d --name calwriter \
   -p 5000:5000 \
   -v $(pwd)/data:/app/data \
-  calwriter:latest
+  ghcr.io/calaquin/calwriter:latest
 ```
 
 Visit `http://localhost:5000` to start writing. All data is stored in the
@@ -44,7 +44,7 @@ Using Docker Compose is even easier. Create a file like this:
 version: "3"
 services:
   calwriter:
-    build: .
+    image: ghcr.io/calaquin/calwriter:latest
     ports:
       - "5000:5000"
     volumes:
