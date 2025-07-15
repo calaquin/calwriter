@@ -119,6 +119,9 @@ body.dark {
     margin-left: 12px;
     margin-right: 4px;
 }
+.gap-below {
+    margin-bottom: 1em;
+}
 
 #word_count {
     font-weight: bold;

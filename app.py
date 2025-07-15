@@ -20,7 +20,7 @@ app = Flask(__name__)
 app.secret_key = 'change-this'
 
 # Application version
-VERSION = "0.5.1"
+VERSION = "0.5.2"
 app.jinja_env.globals['app_version'] = VERSION
 
 DATA_DIR = os.environ.get('DATA_DIR', os.path.join(os.getcwd(), 'data'))
@@ -290,7 +290,8 @@ def app_settings_page():
         save_settings(settings)
         flash('Settings saved')
         return redirect(url_for('index'))
-    return render_template('app_settings.html', settings=settings)
+    folders = list_books()
+    return render_template('app_settings.html', settings=settings, folders=folders)
 
 
 @app.route('/folder/create', methods=['POST'])

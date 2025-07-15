@@ -8,6 +8,10 @@
   <a href="{{ url_for('help_page') }}">Help</a> |
   <a href="{{ url_for('about_page') }}">About</a>
 </p>
+<form action="/folder/create" method="post" class="gap-below">
+  <input type="text" name="name" placeholder="New book" />
+  <button type="submit">Create Book</button>
+</form>
 <h2>Books</h2>
 <p>Start a new book or open an existing one.</p>
 <ul id="book_list" class="sortable" data-type="folder">
@@ -15,8 +19,4 @@
   <li data-name="{{ folder }}"><a href="/folder/{{ folder }}">{{ folder }}</a></li>
   {% endfor %}
 </ul>
-<form action="/folder/create" method="post">
-  <input type="text" name="name" placeholder="New book" />
-  <button type="submit">Create Book</button>
-</form>
 {% endblock %}

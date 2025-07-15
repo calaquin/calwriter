@@ -19,6 +19,14 @@
     {% endif %}
   </p>
 </div>
+<form action="/folder/{{ folder }}/folder/create" method="post" class="gap-below">
+  <input type="text" name="name" placeholder="New sub-folder" />
+  <button type="submit">Create Sub-Folder</button>
+</form>
+<form action="/folder/{{ folder }}/chapter/create" method="post" class="gap-below">
+  <input type="text" name="name" placeholder="New chapter" />
+  <button type="submit">Create Chapter</button>
+</form>
 {% if not parent %}
 <h2>Sub-Folders</h2>
 {% endif %}
@@ -27,10 +35,6 @@
   <li><a href="/folder/{{ folder }}/{{ sub }}">{{ sub }}</a></li>
   {% endfor %}
 </ul>
-<form action="/folder/{{ folder }}/folder/create" method="post">
-  <input type="text" name="name" placeholder="New sub-folder" />
-  <button type="submit">Create Sub-Folder</button>
-</form>
 
 <h2>Chapters</h2>
 <ul id="chapter_list" class="sortable item-list" data-reorder-url="/folder/{{ folder }}/reorder" data-type="chapter">
@@ -45,10 +49,6 @@
   {% endfor %}
 </ul>
 <p><a href="/folder/{{ folder }}/combined.docx">Download All Chapters</a></p>
-<form action="/folder/{{ folder }}/chapter/create" method="post">
-  <input type="text" name="name" placeholder="New chapter" />
-  <button type="submit">Create Chapter</button>
-</form>
 {% if parent %}
 <form class="delete-folder-form" action="/folder/{{ folder }}/delete" method="post" onsubmit="return confirm('Delete this sub-folder?');">
   <button type="submit">Delete Sub-Folder</button>

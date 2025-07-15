@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.2 - 2025-07-15 02:00 UTC
+- moved create sub-folder and chapter forms to the top of folder pages
+- create book form appears above the book list on the home page
+- file tree shown on App Settings and About pages
+
 ## 0.5.1 - 2025-07-15 00:20 UTC
 - fixed labels on sub-folder pages and settings
 
