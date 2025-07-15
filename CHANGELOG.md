@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.5 - 2025-07-15 02:35 UTC
+- chapter filenames now follow the same pattern as combined downloads
+- sidebar header shows CalWriter name and version
+- version bump to 0.5.5
+
 ## 0.5.3 - 2025-07-15 02:28 UTC
 - chapters saved using book title, author and chapter name in the filename
 - combined downloads include book title, author and folder name

@@ -20,7 +20,7 @@ app = Flask(__name__)
 app.secret_key = 'change-this'
 
 # Application version
-VERSION = "0.5.3"
+VERSION = "0.5.5"
 app.jinja_env.globals['app_version'] = VERSION
 
 DATA_DIR = os.environ.get('DATA_DIR', os.path.join(os.getcwd(), 'data'))
@@ -538,7 +538,7 @@ def save_chapter(folder, chapter):
     author = read_author(root_book)
     parts = [safe_name(root_book)]
     if author:
-        parts.append(safe_name(author))
+        parts.append(author)
     parts.append(chapter_name)
     docx_file = ' - '.join(parts) + '.docx'
     docx_path = os.path.join(path, docx_file)
@@ -560,7 +560,7 @@ def autosave_chapter(folder, chapter):
     author = read_author(root_book)
     parts = [safe_name(root_book)]
     if author:
-        parts.append(safe_name(author))
+        parts.append(author)
     parts.append(chapter_name)
     docx_file = ' - '.join(parts) + '.docx'
     docx_path = os.path.join(path, docx_file)
@@ -627,7 +627,7 @@ def download_chapter_docx(folder, chapter):
     author = read_author(root_book)
     parts = [safe_name(root_book)]
     if author:
-        parts.append(safe_name(author))
+        parts.append(author)
     parts.append(chapter_name)
     docx_file = ' - '.join(parts) + '.docx'
     if not os.path.isfile(os.path.join(path, docx_file)):

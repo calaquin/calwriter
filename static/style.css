@@ -25,6 +25,14 @@ body.dark {
     padding: 10px;
     overflow-y: auto;
 }
+#sidebar .sidebar-header {
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+#sidebar .sidebar-header .version {
+    font-size: 0.8em;
+    margin-left: 4px;
+}
 #search_form {
     margin-bottom: 10px;
 }

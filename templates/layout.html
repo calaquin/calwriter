@@ -7,6 +7,7 @@
 </head>
 <body class="{% if app_settings.dark_mode %}dark{% endif %}" style="--sidebar-bg: {{ app_settings.sidebar_color }}; --text-color: {{ app_settings.text_color }}; --bg-color: {{ app_settings.bg_color }}">
 <div id="sidebar">
+  <div class="sidebar-header">CalWriter <span class="version">Version {{ app_version }}</span></div>
   <a href="{{ url_for('index') }}">Home</a>
   <a href="{{ url_for('app_settings_page') }}">App Settings</a>
   <a href="{{ url_for('about_page') }}">About</a>
