@@ -27,6 +27,17 @@ function updateWordCount() {
 
 
 document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('form.close-book-form').forEach(form => {
+        form.addEventListener('submit', () => {
+            const match = form.action.match(/\/folder\/(.+)\/close$/);
+            if (match) {
+                const root = match[1];
+                let tabs = JSON.parse(localStorage.getItem('open_tabs') || '[]');
+                tabs = tabs.filter(t => !t.folder.startsWith(root));
+                localStorage.setItem('open_tabs', JSON.stringify(tabs));
+            }
+        });
+    });
     document.querySelectorAll('#sidebar .tree-item').forEach(li => {
         const path = li.dataset.path;
         if (path && localStorage.getItem('collapsed:' + path) === '1') {

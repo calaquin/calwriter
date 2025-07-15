@@ -13,12 +13,13 @@
 <ul id="book_list" class="sortable" data-type="folder">
   {% for folder in all_books %}
   <li data-name="{{ folder }}">
-    <a href="/folder/{{ folder }}">{{ folder }}</a>
     {% if folder in open_books %}
-    <form action="/folder/{{ folder }}/close" method="post" style="display:inline">
+    <a href="/folder/{{ folder }}">{{ folder }}</a>
+    <form class="close-book-form" action="/folder/{{ folder }}/close" method="post" style="display:inline">
       <button type="submit">Close</button>
     </form>
     {% else %}
+    <span>{{ folder }}</span>
     <form action="/folder/{{ folder }}/open" method="post" style="display:inline">
       <button type="submit">Open</button>
     </form>

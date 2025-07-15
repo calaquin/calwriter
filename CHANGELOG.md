@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.7.5 - 2025-07-15 15:57 UTC
+- closing a book removes its open tabs
+- closed books on the home page only show an open button
+
 ## 0.5.7.2 - 2025-07-15 15:42 UTC
 - fixed book closing logic so closed books disappear from the sidebar
 - updated version display

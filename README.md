@@ -1,6 +1,6 @@
 # CalWriter
 
-Version 0.5.7.2
+Version 0.5.7.5
 
 CalWriter is a simple Flask application for drafting novels.
 
