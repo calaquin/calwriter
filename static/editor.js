@@ -153,7 +153,16 @@ function setupTabs() {
 
 function renderTabs(container, tabs, currentFolder, currentChapter, currentType) {
     container.innerHTML = '';
+    let lastRoot = null;
     tabs.forEach((t, i) => {
+        const root = t.folder.split('/')[0];
+        if (root !== lastRoot) {
+            const title = document.createElement('span');
+            title.className = 'tab-group-title';
+            title.textContent = root;
+            container.appendChild(title);
+            lastRoot = root;
+        }
         const tab = document.createElement('span');
         tab.className = 'chapter-tab' + (t.folder === currentFolder && t.name === currentChapter && t.type === currentType ? ' active' : '');
         tab.dataset.folder = t.folder;
@@ -190,7 +199,7 @@ function renderTabs(container, tabs, currentFolder, currentChapter, currentType)
 
 function enableTabDrag(container, tabs, currentFolder, currentChapter, currentType) {
     let dragging;
-    Array.from(container.children).forEach((tab, idx) => {
+    container.querySelectorAll('.chapter-tab').forEach((tab) => {
         tab.draggable = true;
         tab.addEventListener('dragstart', () => {
             dragging = tab;
@@ -202,7 +211,7 @@ function enableTabDrag(container, tabs, currentFolder, currentChapter, currentTy
             container.insertBefore(dragging, next ? tab.nextSibling : tab);
         });
         tab.addEventListener('drop', () => {
-            const newOrder = Array.from(container.children).map(el => ({
+            const newOrder = Array.from(container.querySelectorAll('.chapter-tab')).map(el => ({
                 folder: el.dataset.folder,
                 name: el.dataset.chapter,
                 type: el.dataset.type || 'chapter'

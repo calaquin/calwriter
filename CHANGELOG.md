@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.5.8 - 2025-07-15 16:11 UTC
+- tabs grouped by book in the chapter tab bar
+
 ## 0.5.7.6 - 2025-07-15 16:04 UTC
 - tabs for closed books now disappear across open pages
 
