@@ -1,0 +1,47 @@
+{% extends "layout.html" %}
+{% block title %}{{ chapter }}{% endblock %}
+{% block body_class %}chapter-view{% endblock %}
+{% block content %}
+<div id="chapter_page">
+  <div id="chapter_area">
+    <h1>{{ folder }} / {{ chapter }}</h1>
+    <div id="chapter_tabs" data-folder="{{ folder }}" data-chapter="{{ chapter }}" data-type="chapter"></div>
+    <form id="chapter_form" action="{{ url_for('save_chapter', folder=folder, chapter=chapter) }}" method="post" onsubmit="prepareChapter()">
+      <div class="toolbar">
+        <select onchange="execCmd('fontName', this.value)">
+          <option value="Arial">Arial</option>
+          <option value="Georgia">Georgia</option>
+          <option value="Times New Roman">Times New Roman</option>
+          <option value="Courier New">Courier New</option>
+        </select>
+        <select onchange="execCmd('fontSize', this.value)">
+          <option value="2">Small</option>
+          <option value="3" selected>Normal</option>
+          <option value="4">Large</option>
+          <option value="5">Larger</option>
+        </select>
+        <button type="button" onclick="execCmd('bold')">B</button>
+        <button type="button" onclick="execCmd('italic')">I</button>
+        <button type="button" class="gap-right" onclick="execCmd('underline')">U</button>
+        <button type="button" onclick="execCmd('insertUnorderedList')">&bull;</button>
+        <button type="button" onclick="execCmd('insertOrderedList')">1.</button>
+        <button type="button" onclick="execCmd('indent')">&#8594;</button>
+        <button type="button" onclick="execCmd('outdent')">&#8592;</button>
+        <button type="button" onclick="execCmd('insertHorizontalRule')">HR</button>
+        <button type="button" class="gap-left" id="undo_btn">Undo</button>
+        <button type="button" id="redo_btn">Redo</button>
+      </div>
+      <div id="chapter_editor" contenteditable="true" data-save-url="{{ url_for('autosave_chapter', folder=folder, chapter=chapter) }}">{{ chapter_html|safe }}</div>
+      <input type="hidden" name="text" id="chapter_text" />
+    </form>
+  </div>
+  <div id="notes_resizer"></div>
+  <div id="notes_sidebar">
+    <p>Words: <span id="word_count">0</span></p>
+    {% if notes_text %}
+    <p><a href="{{ url_for('download_note', folder=folder, chapter=chapter) }}">Download Notes</a></p>
+    {% endif %}
+    <textarea id="notes_editor" data-save-url="{{ url_for('save_notes', folder=folder, chapter=chapter) }}">{{ notes_text }}</textarea>
+  </div>
+</div>
+{% endblock %}
