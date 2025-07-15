@@ -5,7 +5,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script src="{{ url_for('static', filename='editor.js') }}"></script>
 </head>
-<body class="{% if app_settings.dark_mode %}dark{% endif %}" style="--sidebar-bg: {{ app_settings.sidebar_color }}; --text-color: {{ app_settings.text_color }}; --bg-color: {{ app_settings.bg_color }}">
+<body class="{% if app_settings.dark_mode %}dark{% endif %}" style="--sidebar-bg: {{ app_settings.sidebar_color }}; --text-color: {{ app_settings.text_color }}; --bg-color: {{ app_settings.bg_color }}; --toolbar-bg: {{ app_settings.toolbar_color }}">
 <div id="sidebar">
   <div class="sidebar-title">CalWriter <span class="version">Version {{ app_version }}</span></div>
   <a href="{{ url_for('index') }}">Home</a>

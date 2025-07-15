@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.5.8.5 - 2025-07-15 17:45 UTC
+- toolbar color customizable and includes indent/outdent buttons
+
 ## 0.5.8.4 - 2025-07-15 17:10 UTC
 - fix chapter page scrolling so full text is accessible
 

@@ -20,7 +20,7 @@ app = Flask(__name__)
 app.secret_key = 'change-this'
 
 # Application version
-VERSION = "0.5.8.4"
+VERSION = "0.5.8.5"
 app.jinja_env.globals['app_version'] = VERSION
 
 DATA_DIR = os.environ.get('DATA_DIR', os.path.join(os.getcwd(), 'data'))
@@ -50,18 +50,22 @@ def save_open_books(books: list) -> None:
 
 
 def load_settings():
-    if os.path.isfile(SETTINGS_FILE):
-        with open(SETTINGS_FILE) as f:
-            try:
-                return json.load(f)
-            except json.JSONDecodeError:
-                pass
-    return {
+    defaults = {
         'dark_mode': False,
         'sidebar_color': '#f0f0f0',
         'text_color': '#000000',
         'bg_color': '#ffffff',
+        'toolbar_color': '#dddddd',
     }
+    if os.path.isfile(SETTINGS_FILE):
+        with open(SETTINGS_FILE) as f:
+            try:
+                data = json.load(f)
+                defaults.update(data)
+                return defaults
+            except json.JSONDecodeError:
+                pass
+    return defaults
 
 
 def save_settings(data: dict) -> None:
@@ -313,12 +317,14 @@ def app_settings_page():
                 'sidebar_color': '#f0f0f0',
                 'text_color': '#000000',
                 'bg_color': '#ffffff',
+                'toolbar_color': '#dddddd',
             }
         else:
             settings['dark_mode'] = bool(request.form.get('dark_mode'))
             settings['sidebar_color'] = request.form.get('sidebar_color', '#f0f0f0') or '#f0f0f0'
             settings['text_color'] = request.form.get('text_color', '#000000') or '#000000'
             settings['bg_color'] = request.form.get('bg_color', '#ffffff') or '#ffffff'
+            settings['toolbar_color'] = request.form.get('toolbar_color', '#dddddd') or '#dddddd'
         save_settings(settings)
         flash('Settings saved')
         return redirect(url_for('index'))
