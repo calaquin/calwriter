@@ -1,0 +1,61 @@
+{% extends "layout.html" %}
+{% block title %}{{ folder }}{% endblock %}
+{% block content %}
+{% set parent = '/'.join(folder.split('/')[:-1]) %}
+<div class="folder-header">
+  <h1>{{ folder }}</h1>
+  {% if author %}
+  <p class="author"><em>{{ author }}</em></p>
+  {% endif %}
+  {% if description %}
+  <p class="description">{{ description }}</p>
+  {% endif %}
+  <p class="folder-actions">
+    <a href="/folder/{{ folder }}/stats">View Stats</a>
+    {% if not parent %}
+    | <a href="/folder/{{ folder }}/settings">Book Settings</a>
+    {% else %}
+    | <a href="/folder/{{ folder }}/settings">Sub-Folder Settings</a>
+    {% endif %}
+  </p>
+</div>
+{% if not parent %}
+<h2>Sub-Folders</h2>
+{% endif %}
+<ul class="item-list">
+  {% for sub in subfolders %}
+  <li><a href="/folder/{{ folder }}/{{ sub }}">{{ sub }}</a></li>
+  {% endfor %}
+</ul>
+<form action="/folder/{{ folder }}/folder/create" method="post">
+  <input type="text" name="name" placeholder="New sub-folder" />
+  <button type="submit">Create Sub-Folder</button>
+</form>
+
+<h2>Chapters</h2>
+<ul id="chapter_list" class="sortable item-list" data-reorder-url="/folder/{{ folder }}/reorder" data-type="chapter">
+  {% for chapter in chapters %}
+  <li data-name="{{ chapter }}">
+    <a href="/folder/{{ folder }}/chapter/{{ chapter }}">{{ chapter }}</a>
+    (<a href="{{ url_for('download_chapter_docx', folder=folder, chapter=chapter) }}">Download</a>)
+    <form action="/folder/{{ folder }}/chapter/{{ chapter }}/delete" method="post" style="display:inline" onsubmit="return confirm('Delete this chapter?');">
+      <button type="submit">Delete</button>
+    </form>
+  </li>
+  {% endfor %}
+</ul>
+<p><a href="/folder/{{ folder }}/combined.docx">Download All Chapters</a></p>
+<form action="/folder/{{ folder }}/chapter/create" method="post">
+  <input type="text" name="name" placeholder="New chapter" />
+  <button type="submit">Create Chapter</button>
+</form>
+{% if parent %}
+<form class="delete-folder-form" action="/folder/{{ folder }}/delete" method="post" onsubmit="return confirm('Delete this sub-folder?');">
+  <button type="submit">Delete Sub-Folder</button>
+</form>
+{% else %}
+<form class="delete-folder-form" action="/folder/{{ folder }}/close" method="post">
+  <button type="submit">Close Book</button>
+</form>
+{% endif %}
+{% endblock %}
