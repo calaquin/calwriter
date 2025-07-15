@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.7.2 - 2025-07-15 15:42 UTC
+- fixed book closing logic so closed books disappear from the sidebar
+- updated version display
+
 ## 0.5.7 - 2025-07-15 15:30 UTC
 - app name and version shown on the sidebar
 - changelog link added to the sidebar

@@ -20,7 +20,7 @@ app = Flask(__name__)
 app.secret_key = 'change-this'
 
 # Application version
-VERSION = "0.5.7"
+VERSION = "0.5.7.2"
 app.jinja_env.globals['app_version'] = VERSION
 
 DATA_DIR = os.environ.get('DATA_DIR', os.path.join(os.getcwd(), 'data'))
@@ -39,7 +39,9 @@ def load_open_books():
                 return json.load(f)
         except json.JSONDecodeError:
             pass
-    return []
+    books = list_all_books()
+    save_open_books(books)
+    return books
 
 
 def save_open_books(books: list) -> None:
@@ -228,8 +230,6 @@ def list_all_books():
 def list_books():
     all_books = list_all_books()
     open_books = load_open_books()
-    if not open_books:
-        return all_books
     return [b for b in all_books if b in open_books]
 
 
@@ -294,8 +294,6 @@ def write_author(folder: str, text: str) -> None:
 def index():
     all_books = list_all_books()
     open_books = load_open_books()
-    if not open_books:
-        open_books = all_books
     folders = [b for b in all_books if b in open_books]
     return render_template(
         'index.html',
@@ -474,6 +472,10 @@ def folder_settings(folder):
                         idx = root_order['folders'].index(old)
                         root_order['folders'][idx] = new_name
                         save_order('', root_order)
+                    open_books = load_open_books()
+                    if old in open_books:
+                        open_books[open_books.index(old)] = new_name
+                        save_open_books(open_books)
                 folder_name = os.path.join(os.path.dirname(folder_name), new_name).strip('/')
                 path = new_path
                 flash('Book renamed')
