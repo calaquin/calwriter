@@ -36,7 +36,11 @@
   {% endfor %}
 </ul>
 
+{% if parent %}
+<br>
+{% else %}
 <h2>Chapters</h2>
+{% endif %}
 <ul id="chapter_list" class="sortable item-list" data-reorder-url="/folder/{{ folder }}/reorder" data-type="chapter">
   {% for chapter in chapters %}
   <li data-name="{{ chapter }}">

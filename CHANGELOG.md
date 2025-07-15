@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.3 - 2025-07-15 02:28 UTC
+- chapters saved using book title, author and chapter name in the filename
+- combined downloads include book title, author and folder name
+- version bump to 0.5.3
+
 ## 0.5.2 - 2025-07-15 02:00 UTC
 - moved create sub-folder and chapter forms to the top of folder pages
 - create book form appears above the book list on the home page

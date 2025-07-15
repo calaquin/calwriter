@@ -20,7 +20,7 @@ app = Flask(__name__)
 app.secret_key = 'change-this'
 
 # Application version
-VERSION = "0.5.2"
+VERSION = "0.5.3"
 app.jinja_env.globals['app_version'] = VERSION
 
 DATA_DIR = os.environ.get('DATA_DIR', os.path.join(os.getcwd(), 'data'))
@@ -534,7 +534,14 @@ def save_chapter(folder, chapter):
     html_path = os.path.join(path, 'chapter.html')
     with open(html_path, 'w') as f:
         f.write(text)
-    docx_path = os.path.join(path, 'chapter.docx')
+    root_book = folder_name.split('/')[0]
+    author = read_author(root_book)
+    parts = [safe_name(root_book)]
+    if author:
+        parts.append(safe_name(author))
+    parts.append(chapter_name)
+    docx_file = ' - '.join(parts) + '.docx'
+    docx_path = os.path.join(path, docx_file)
     html_to_docx(text, docx_path)
     return redirect(url_for('view_chapter', folder=folder_name, chapter=chapter_name))
 
@@ -549,7 +556,14 @@ def autosave_chapter(folder, chapter):
     html_path = os.path.join(path, 'chapter.html')
     with open(html_path, 'w') as f:
         f.write(text)
-    docx_path = os.path.join(path, 'chapter.docx')
+    root_book = folder_name.split('/')[0]
+    author = read_author(root_book)
+    parts = [safe_name(root_book)]
+    if author:
+        parts.append(safe_name(author))
+    parts.append(chapter_name)
+    docx_file = ' - '.join(parts) + '.docx'
+    docx_path = os.path.join(path, docx_file)
     html_to_docx(text, docx_path)
     return ('', 204)
 
@@ -609,11 +623,20 @@ def download_chapter_docx(folder, chapter):
     folder_name = sanitize_path(folder)
     chapter_name = safe_name(chapter)
     path = os.path.join(DATA_DIR, folder_name, chapter_name)
+    root_book = folder_name.split('/')[0]
+    author = read_author(root_book)
+    parts = [safe_name(root_book)]
+    if author:
+        parts.append(safe_name(author))
+    parts.append(chapter_name)
+    docx_file = ' - '.join(parts) + '.docx'
+    if not os.path.isfile(os.path.join(path, docx_file)):
+        docx_file = 'chapter.docx'
     return send_from_directory(
         path,
-        'chapter.docx',
+        docx_file,
         as_attachment=True,
-        download_name=f"{chapter_name}.docx",
+        download_name=docx_file,
     )
 
 
@@ -644,7 +667,14 @@ def download_combined_docx(folder):
     bio = BytesIO()
     doc.save(bio)
     bio.seek(0)
-    filename = f"{folder_name.split('/')[-1]}_combined.docx"
+    root_book = folder_name.split('/')[0]
+    author = read_author(root_book)
+    sub_name = folder_name.split('/')[-1]
+    parts = [root_book]
+    if author:
+        parts.append(author)
+    parts.append(sub_name)
+    filename = ' - '.join(parts) + '.docx'
     return send_file(
         bio,
         as_attachment=True,
