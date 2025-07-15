@@ -1,0 +1,45 @@
+{% extends "layout.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+{% set parent = '/'.join(folder.split('/')[:-1]) %}
+<h1>{% if parent %}Edit Sub-Folder Settings{% else %}Edit Book Settings{% endif %}</h1>
+<form method="post">
+  <p><label>Name:<br><input type="text" name="name" value="{{ name }}"></label></p>
+  <p><label>Description:<br><textarea name="description" rows="4" cols="40">{{ description }}</textarea></label></p>
+  <p><label>Author:<br><input type="text" name="author" value="{{ author }}"></label></p>
+  {% if not parent %}
+  <p><label>Book color:<br><input type="color" name="color" value="{{ color or '#dddddd' }}"></label></p>
+  {% endif %}
+  <button type="submit">Save Settings</button>
+</form>
+
+<form class="delete-folder-form" action="/folder/{{ folder }}/delete" method="post" onsubmit="return confirm('{% if parent %}Delete this sub-folder?{% else %}Delete this book?{% endif %}');">
+  <button type="submit">{% if parent %}Delete Sub-Folder{% else %}Delete Book{% endif %}</button>
+</form>
+
+<h2>Reorder and Rename Sub-Folders</h2>
+<ul id="subfolder_list" class="sortable" data-reorder-url="/folder/{{ folder }}/reorder" data-type="folder">
+{% for sub in subfolders %}
+  <li data-name="{{ sub }}">
+    {{ sub }}
+    <form method="post" action="/folder/{{ folder }}/rename_subfolder/{{ sub }}" style="display:inline">
+      <input type="text" name="new_name" value="{{ sub }}" size="10" />
+      <button type="submit">Rename</button>
+    </form>
+  </li>
+{% endfor %}
+</ul>
+
+<h2>Reorder and Rename Chapters</h2>
+<ul id="chapter_list" class="sortable" data-reorder-url="/folder/{{ folder }}/reorder" data-type="chapter">
+{% for chap in chapters %}
+  <li data-name="{{ chap }}">
+    {{ chap }}
+    <form method="post" action="/folder/{{ folder }}/chapter/{{ chap }}/rename" style="display:inline">
+      <input type="text" name="new_name" value="{{ chap }}" size="10" />
+      <button type="submit">Rename</button>
+    </form>
+  </li>
+{% endfor %}
+</ul>
+{% endblock %}
