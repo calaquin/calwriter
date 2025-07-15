@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.5.7.6 - 2025-07-15 16:04 UTC
+- tabs for closed books now disappear across open pages
+
 ## 0.5.7.5 - 2025-07-15 15:57 UTC
 - closing a book removes its open tabs
 - closed books on the home page only show an open button

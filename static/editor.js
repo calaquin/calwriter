@@ -133,6 +133,22 @@ function setupTabs() {
         localStorage.setItem('open_tabs', JSON.stringify(tabs));
     }
     renderTabs(tabsEl, tabs, currentFolder, currentChapter, currentType);
+    window.addEventListener('storage', (e) => {
+        if (e.key === 'open_tabs') {
+            const updated = JSON.parse(e.newValue || '[]');
+            const stillOpen = updated.some(t => t.folder === currentFolder && t.name === currentChapter && t.type === currentType);
+            if (!stillOpen) {
+                if (updated.length) {
+                    const next = updated[updated.length - 1];
+                    window.location.href = `/folder/${next.folder}/chapter/${next.name}`;
+                } else {
+                    window.location.href = '/';
+                }
+                return;
+            }
+            renderTabs(tabsEl, updated, currentFolder, currentChapter, currentType);
+        }
+    });
 }
 
 function renderTabs(container, tabs, currentFolder, currentChapter, currentType) {
