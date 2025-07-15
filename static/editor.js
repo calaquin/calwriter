@@ -1,5 +1,5 @@
-function execCmd(command) {
-    document.execCommand(command, false, null);
+function execCmd(command, value = null) {
+    document.execCommand(command, false, value);
 }
 function toggleTree(el) {
     const li = el.closest('li');

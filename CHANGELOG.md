@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.5.8.3 - 2025-07-15 16:54 UTC
+- improved chapter page with a new font toolbar
+
 ## 0.5.8.2 - 2025-07-15 16:42 UTC
 - tab groups have close buttons and colored backgrounds
 - tab groups can be rearranged like individual tabs

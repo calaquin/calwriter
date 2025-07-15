@@ -143,6 +143,11 @@ body.dark {
     background: var(--bg-color);
 }
 #chapter_editor p,
+.toolbar {
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+}
 #chapter_editor div {
     text-indent: 2em;
     margin: 0 0 1em 0;
@@ -153,6 +158,12 @@ body.dark {
     background: var(--bg-color);
     margin-right: 4px;
     color: var(--text-color);
+}
+.toolbar select {
+    border: 1px solid #ccc;
+    background: var(--bg-color);
+    color: var(--text-color);
+    margin-right: 4px;
 }
 .toolbar .gap-right {
     margin-right: 12px;
