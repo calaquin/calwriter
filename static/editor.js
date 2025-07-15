@@ -25,6 +25,31 @@ function updateWordCount() {
     if (counter) counter.textContent = words.length;
 }
 
+function colorFromString(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const h = Math.abs(hash) % 360;
+    return `hsl(${h},70%,90%)`;
+}
+
+function sortTabs(tabs) {
+    const order = [];
+    tabs.forEach(t => {
+        const root = t.folder.split('/')[0];
+        if (!order.includes(root)) order.push(root);
+    });
+    tabs.sort((a, b) => {
+        const ra = a.folder.split('/')[0];
+        const rb = b.folder.split('/')[0];
+        const ia = order.indexOf(ra);
+        const ib = order.indexOf(rb);
+        if (ia !== ib) return ia - ib;
+        return a.name.localeCompare(b.name);
+    });
+}
+
 
 document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('form.close-book-form').forEach(form => {
@@ -130,22 +155,10 @@ function setupTabs() {
     const existing = tabs.find(t => t.folder === currentFolder && t.name === currentChapter && t.type === currentType);
     if (!existing) {
         tabs.push({folder: currentFolder, name: currentChapter, type: currentType});
-        tabs.sort((a, b) => {
-            const ra = a.folder.split('/')[0];
-            const rb = b.folder.split('/')[0];
-            if (ra < rb) return -1;
-            if (ra > rb) return 1;
-            return a.name.localeCompare(b.name);
-        });
+        sortTabs(tabs);
         localStorage.setItem('open_tabs', JSON.stringify(tabs));
     } else {
-        tabs.sort((a, b) => {
-            const ra = a.folder.split('/')[0];
-            const rb = b.folder.split('/')[0];
-            if (ra < rb) return -1;
-            if (ra > rb) return 1;
-            return a.name.localeCompare(b.name);
-        });
+        sortTabs(tabs);
     }
     renderTabs(tabsEl, tabs, currentFolder, currentChapter, currentType);
     window.addEventListener('storage', (e) => {
@@ -187,6 +200,30 @@ function enableTabDrag(container, tabs, currentFolder, currentChapter, currentTy
                 type: el.dataset.type || 'chapter'
             }));
             tabs.splice(0, tabs.length, ...newOrder);
+            localStorage.setItem('open_tabs', JSON.stringify(tabs));
+            renderTabs(container, tabs, currentFolder, currentChapter, currentType);
+        });
+    });
+}
+
+function enableGroupDrag(container, tabs, currentFolder, currentChapter, currentType) {
+    let dragging;
+    container.querySelectorAll('.tab-group').forEach(group => {
+        group.draggable = true;
+        group.addEventListener('dragstart', () => { dragging = group; });
+        group.addEventListener('dragover', e => {
+            e.preventDefault();
+            const rect = group.getBoundingClientRect();
+            const next = (e.clientX - rect.left) > (rect.width / 2);
+            container.insertBefore(dragging, next ? group.nextSibling : group);
+        });
+        group.addEventListener('drop', () => {
+            const order = Array.from(container.querySelectorAll('.tab-group')).map(g => g.dataset.root);
+            const newTabs = [];
+            order.forEach(r => {
+                tabs.filter(t => t.folder.split('/')[0] === r).forEach(t => newTabs.push(t));
+            });
+            tabs.splice(0, tabs.length, ...newTabs);
             localStorage.setItem('open_tabs', JSON.stringify(tabs));
             renderTabs(container, tabs, currentFolder, currentChapter, currentType);
         });
@@ -242,9 +279,32 @@ function renderTabs(container, tabs, currentFolder, currentChapter, currentType)
     orderedRoots.forEach(root => {
         const wrapper = document.createElement('div');
         wrapper.className = 'tab-group';
+        wrapper.dataset.root = root;
+        wrapper.style.backgroundColor = colorFromString(root);
         const title = document.createElement('div');
         title.className = 'tab-group-title';
-        title.textContent = root;
+        const span = document.createElement('span');
+        span.textContent = root;
+        const closeAll = document.createElement('button');
+        closeAll.textContent = '\u00d7';
+        closeAll.className = 'close-group';
+        closeAll.addEventListener('click', e => {
+            e.stopPropagation();
+            tabs = tabs.filter(t => t.folder.split('/')[0] !== root);
+            localStorage.setItem('open_tabs', JSON.stringify(tabs));
+            if (!tabs.some(t => t.folder === currentFolder && t.name === currentChapter && t.type === currentType)) {
+                if (tabs.length) {
+                    const next = tabs[tabs.length - 1];
+                    window.location.href = `/folder/${next.folder}/chapter/${next.name}`;
+                } else {
+                    window.location.href = '/';
+                }
+                return;
+            }
+            renderTabs(container, tabs, currentFolder, currentChapter, currentType);
+        });
+        title.appendChild(span);
+        title.appendChild(closeAll);
         wrapper.appendChild(title);
         groups[root].forEach(t => {
             const tab = document.createElement('span');
@@ -282,4 +342,5 @@ function renderTabs(container, tabs, currentFolder, currentChapter, currentType)
         container.appendChild(wrapper);
     });
     enableTabDrag(container, tabs, currentFolder, currentChapter, currentType);
+    enableGroupDrag(container, tabs, currentFolder, currentChapter, currentType);
 }

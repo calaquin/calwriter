@@ -83,13 +83,25 @@ body.dark {
 .tab-group {
     display: inline-block;
     margin-right: 12px;
+    padding: 2px 4px;
+    border: 1px solid #bbb;
+    border-radius: 4px;
     text-align: center;
 }
 .tab-group-title {
     font-weight: bold;
     font-size: 0.8em;
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     margin-bottom: 2px;
+    padding: 0 2px;
+}
+.close-group {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    margin-left: 4px;
 }
 .chapter-tab a {
     color: var(--text-color);

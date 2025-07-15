@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.8.2 - 2025-07-15 16:42 UTC
+- tab groups have close buttons and colored backgrounds
+- tab groups can be rearranged like individual tabs
+
 ## 0.5.8.1 - 2025-07-15 16:24 UTC
 - tab group titles appear above their tabs
 - new tabs auto-sort by book
