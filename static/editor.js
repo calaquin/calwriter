@@ -280,7 +280,8 @@ function renderTabs(container, tabs, currentFolder, currentChapter, currentType)
         const wrapper = document.createElement('div');
         wrapper.className = 'tab-group';
         wrapper.dataset.root = root;
-        wrapper.style.backgroundColor = colorFromString(root);
+        const colorMap = window.bookColors || {};
+        wrapper.style.backgroundColor = colorMap[root] || colorFromString(root);
         const title = document.createElement('div');
         title.className = 'tab-group-title';
         const span = document.createElement('span');

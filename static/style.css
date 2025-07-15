@@ -48,10 +48,12 @@ body.dark {
 #main {
     flex: 1;
     padding: 20px;
+    overflow-y: auto;
 }
 
 body.chapter-view #main {
     padding: 10px;
+    overflow: hidden;
 }
 
 body.chapter-view #chapter_area {
@@ -252,4 +254,8 @@ body.chapter-view #chapter_area h1 {
 
 .delete-folder-form {
     margin-top: 1em;
+}
+
+pre.changelog {
+    white-space: pre-wrap;
 }

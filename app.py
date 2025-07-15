@@ -20,7 +20,7 @@ app = Flask(__name__)
 app.secret_key = 'change-this'
 
 # Application version
-VERSION = "0.5.8.6"
+VERSION = "0.5.8.7"
 app.jinja_env.globals['app_version'] = VERSION
 
 DATA_DIR = os.environ.get('DATA_DIR', os.path.join(os.getcwd(), 'data'))
@@ -262,7 +262,8 @@ app.jinja_env.globals['list_all_books'] = list_all_books
 
 @app.context_processor
 def inject_app_settings():
-    return {'app_settings': load_settings()}
+    colors = {b: read_color(b) for b in list_all_books()}
+    return {'app_settings': load_settings(), 'book_colors': colors}
 
 
 def read_description(folder: str) -> str:
@@ -293,6 +294,21 @@ def write_author(folder: str, text: str) -> None:
     path = os.path.join(DATA_DIR, sanitize_path(folder), 'author.txt')
     with open(path, 'w') as f:
         f.write(text)
+
+def read_color(folder: str) -> str:
+    """Return stored color for a book if set."""
+    path = os.path.join(DATA_DIR, sanitize_path(folder), 'color.txt')
+    if os.path.isfile(path):
+        with open(path) as f:
+            return f.read().strip()
+    return ''
+
+
+def write_color(folder: str, color: str) -> None:
+    os.makedirs(os.path.join(DATA_DIR, sanitize_path(folder)), exist_ok=True)
+    path = os.path.join(DATA_DIR, sanitize_path(folder), 'color.txt')
+    with open(path, 'w') as f:
+        f.write(color)
 
 
 @app.route('/')
@@ -441,6 +457,8 @@ def folder_settings(folder):
         return redirect(url_for('index'))
     description = read_description(folder_name)
     author = read_author(folder_name)
+    color = read_color(folder_name)
+    parent = os.path.dirname(folder_name)
     order = load_order(folder_name)
     if request.method == 'POST':
         if 'item_type' in request.form:
@@ -460,6 +478,7 @@ def folder_settings(folder):
         new_name = safe_name(request.form.get('name', folder_name.split('/')[-1]))
         desc = request.form.get('description', '')
         author_text = request.form.get('author', '')
+        color_value = request.form.get('color', color)
         if new_name and new_name != folder_name.split('/')[-1]:
             new_path = os.path.join(DATA_DIR, os.path.dirname(folder_name), new_name)
             if os.path.exists(new_path):
@@ -490,6 +509,8 @@ def folder_settings(folder):
                 flash('Book renamed')
         write_description(folder_name, desc)
         write_author(folder_name, author_text)
+        if not parent:
+            write_color(folder_name, color_value)
         return redirect(url_for('view_folder', folder=folder_name))
     subfolders = list_subfolders(folder_name)
     chapters = list_chapters(folder_name)
@@ -503,6 +524,7 @@ def folder_settings(folder):
         subfolders=subfolders,
         chapters=chapters,
         folders=folders,
+        color=color,
     )
 
 

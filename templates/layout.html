@@ -4,6 +4,9 @@
   <title>{% block title %}{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script src="{{ url_for('static', filename='editor.js') }}"></script>
+  <script>
+    window.bookColors = {{ book_colors|tojson }};
+  </script>
 </head>
 <body class="{% if app_settings.dark_mode %}dark {% endif %}{% block body_class %}{% endblock %}" style="--sidebar-bg: {{ app_settings.sidebar_color if not app_settings.dark_mode else '#333' }}; --text-color: {{ app_settings.text_color if not app_settings.dark_mode else '#eee' }}; --bg-color: {{ app_settings.bg_color if not app_settings.dark_mode else '#222' }}; --toolbar-bg: {{ app_settings.toolbar_color if not app_settings.dark_mode else '#555' }}; --editor-bg: {{ app_settings.editor_color if not app_settings.dark_mode else '#444' }}">
 <div id="sidebar">

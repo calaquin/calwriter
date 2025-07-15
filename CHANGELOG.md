@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.8.7 - 2025-07-15 18:30 UTC
+- book settings allow choosing a tab group color
+- chapter page keeps toolbar visible with only the editor scrolling
+- other pages scroll independently of the sidebars
+
 ## 0.5.8.6 - 2025-07-15 18:00 UTC
 - dark mode applies correct colors
 - editor background color customizable

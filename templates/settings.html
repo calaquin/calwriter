@@ -7,6 +7,9 @@
   <p><label>Name:<br><input type="text" name="name" value="{{ name }}"></label></p>
   <p><label>Description:<br><textarea name="description" rows="4" cols="40">{{ description }}</textarea></label></p>
   <p><label>Author:<br><input type="text" name="author" value="{{ author }}"></label></p>
+  {% if not parent %}
+  <p><label>Book color:<br><input type="color" name="color" value="{{ color or '#dddddd' }}"></label></p>
+  {% endif %}
   <button type="submit">Save Settings</button>
 </form>
 
