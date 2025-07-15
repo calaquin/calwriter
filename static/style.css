@@ -48,6 +48,7 @@ body.dark {
 #chapter_page {
     display: flex;
     height: 100%;
+    min-height: 0;
 }
 #chapter_area {
     flex: 1;
@@ -55,11 +56,13 @@ body.dark {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    min-height: 0;
 }
 #chapter_form {
     display: flex;
     flex-direction: column;
     flex: 1;
+    min-height: 0;
 }
 #chapter_editor {
     flex: 1;
