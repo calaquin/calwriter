@@ -72,7 +72,6 @@ def load_settings():
 
 def save_settings(data: dict) -> None:
     with open(SETTINGS_FILE, 'w') as f:
-import bleach
         json.dump(data, f)
 
 
