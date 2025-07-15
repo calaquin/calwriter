@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.5.1 - 2025-07-15 00:20 UTC
+- fixed labels on sub-folder pages and settings
+
 ## 0.5.0 - 2025-07-15 00:10 UTC
 - moved delete book action to the Book Settings page
 - sub-folder pages now link to "Sub-Folder Settings"

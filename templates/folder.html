@@ -1,6 +1,7 @@
 {% extends "layout.html" %}
 {% block title %}{{ folder }}{% endblock %}
 {% block content %}
+{% set parent = '/'.join(folder.split('/')[:-1]) %}
 <div class="folder-header">
   <h1>{{ folder }}</h1>
   {% if author %}
@@ -18,7 +19,6 @@
     {% endif %}
   </p>
 </div>
-{% set parent = '/'.join(folder.split('/')[:-1]) %}
 {% if not parent %}
 <h2>Sub-Folders</h2>
 {% endif %}
