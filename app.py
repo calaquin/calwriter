@@ -20,7 +20,7 @@ app = Flask(__name__)
 app.secret_key = 'change-this'
 
 # Application version
-VERSION = "0.5.8.5"
+VERSION = "0.5.8.6"
 app.jinja_env.globals['app_version'] = VERSION
 
 DATA_DIR = os.environ.get('DATA_DIR', os.path.join(os.getcwd(), 'data'))
@@ -56,6 +56,7 @@ def load_settings():
         'text_color': '#000000',
         'bg_color': '#ffffff',
         'toolbar_color': '#dddddd',
+        'editor_color': '#ffffff',
     }
     if os.path.isfile(SETTINGS_FILE):
         with open(SETTINGS_FILE) as f:
@@ -318,6 +319,7 @@ def app_settings_page():
                 'text_color': '#000000',
                 'bg_color': '#ffffff',
                 'toolbar_color': '#dddddd',
+                'editor_color': '#ffffff',
             }
         else:
             settings['dark_mode'] = bool(request.form.get('dark_mode'))
@@ -325,6 +327,7 @@ def app_settings_page():
             settings['text_color'] = request.form.get('text_color', '#000000') or '#000000'
             settings['bg_color'] = request.form.get('bg_color', '#ffffff') or '#ffffff'
             settings['toolbar_color'] = request.form.get('toolbar_color', '#dddddd') or '#dddddd'
+            settings['editor_color'] = request.form.get('editor_color', '#ffffff') or '#ffffff'
         save_settings(settings)
         flash('Settings saved')
         return redirect(url_for('index'))

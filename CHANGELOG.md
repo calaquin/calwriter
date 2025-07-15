@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.8.6 - 2025-07-15 18:00 UTC
+- dark mode applies correct colors
+- editor background color customizable
+- toolbar adds horizontal line button
+- chapter page spacing tightened
+
 ## 0.5.8.5 - 2025-07-15 17:45 UTC
 - toolbar color customizable and includes indent/outdent buttons
 

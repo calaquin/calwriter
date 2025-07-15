@@ -1,5 +1,6 @@
 {% extends "layout.html" %}
 {% block title %}{{ chapter }}{% endblock %}
+{% block body_class %}chapter-view{% endblock %}
 {% block content %}
 <div id="chapter_page">
   <div id="chapter_area">
@@ -26,6 +27,7 @@
         <button type="button" onclick="execCmd('insertOrderedList')">1.</button>
         <button type="button" onclick="execCmd('indent')">&#8594;</button>
         <button type="button" onclick="execCmd('outdent')">&#8592;</button>
+        <button type="button" onclick="execCmd('insertHorizontalRule')">HR</button>
         <button type="button" class="gap-left" id="undo_btn">Undo</button>
         <button type="button" id="redo_btn">Redo</button>
       </div>
