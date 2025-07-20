@@ -552,8 +552,10 @@ def folder_settings(folder):
         author_text = request.form.get('author', '')
         color_value = request.form.get('color', color)
         if new_name and new_name != folder_name.split('/')[-1]:
-            new_path = os.path.join(DATA_DIR, os.path.dirname(folder_name), new_name)
-            if os.path.exists(new_path):
+            new_path = os.path.normpath(os.path.join(DATA_DIR, os.path.dirname(folder_name), new_name))
+            if not new_path.startswith(DATA_DIR):
+                flash('Invalid path')
+            elif os.path.exists(new_path):
                 flash('Name already exists')
             else:
                 os.rename(path, new_path)
