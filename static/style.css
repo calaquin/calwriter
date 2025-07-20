@@ -1,0 +1,279 @@
+#:root defines customizable colors which can be toggled via settings
+:root {
+    --bg-color: #fff;
+    --text-color: #000;
+    --sidebar-bg: #f0f0f0;
+    --toolbar-bg: #ddd;
+    --editor-bg: #fff;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    display: flex;
+    height: 100vh;
+    margin: 0;
+    background: var(--bg-color);
+    color: var(--text-color);
+}
+
+body.dark {
+    --bg-color: #222;
+    --text-color: #eee;
+    --sidebar-bg: #333;
+    --toolbar-bg: #555;
+    --editor-bg: #444;
+}
+#sidebar {
+    width: 250px;
+    background: var(--sidebar-bg);
+    padding: 10px;
+    overflow-y: auto;
+    height: 100vh;
+}
+#sidebar .sidebar-title {
+    font-weight: bold;
+    margin-bottom: 6px;
+}
+#sidebar .sidebar-title .version {
+    font-size: 0.8em;
+    margin-left: 0.5em;
+}
+#search_form {
+    margin-bottom: 10px;
+}
+#sidebar a {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--text-color);
+}
+#main {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+body.chapter-view #main {
+    padding: 10px;
+    overflow: hidden;
+}
+
+body.chapter-view #chapter_area {
+    padding-right: 10px;
+}
+
+body.chapter-view #chapter_area h1 {
+    margin-top: 0;
+    margin-bottom: 0.5em;
+}
+#chapter_page {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+}
+#chapter_area {
+    flex: 1;
+    padding-right: 20px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+}
+#chapter_form {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+#chapter_editor {
+    flex: 1;
+    overflow-y: auto;
+}
+#chapter_tabs {
+    margin-bottom: 8px;
+}
+.chapter-tab {
+    display: inline-block;
+    background: var(--sidebar-bg);
+    padding: 1px 6px;
+    margin-right: 4px;
+    border: 1px solid #ccc;
+    border-bottom: none;
+}
+.chapter-tab.active {
+    background: var(--bg-color);
+    border-bottom: 1px solid var(--bg-color);
+}
+.tab-group {
+    display: inline-block;
+    margin-right: 8px;
+    padding: 0 4px;
+    border: 1px solid #bbb;
+    border-radius: 4px;
+    text-align: center;
+    opacity: 0.7;
+}
+.tab-group-title {
+    font-weight: bold;
+    font-size: 0.8em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 0;
+    padding: 0 2px;
+}
+.close-group {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    margin-left: 4px;
+}
+.chapter-tab a {
+    color: var(--text-color);
+    text-decoration: none;
+    margin-right: 4px;
+}
+.close-tab {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: var(--text-color);
+}
+#notes_sidebar {
+    width: 20%;
+    background: var(--sidebar-bg);
+    padding: 10px;
+    overflow-y: auto;
+    height: 100%;
+    color: var(--text-color);
+    min-width: 150px;
+    max-width: 50%;
+}
+#notes_resizer {
+    width: 6px;
+    cursor: ew-resize;
+    background: #ccc;
+}
+#notes_editor {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 200px;
+    margin-bottom: 10px;
+}
+#editor, #chapter_editor {
+    border: 1px solid #ccc;
+    min-height: 200px;
+    padding: 8px;
+    margin-bottom: 10px;
+    background: var(--editor-bg);
+}
+#chapter_editor p {
+    text-indent: 2em;
+    margin: 0 0 1em 0;
+}
+.toolbar {
+    display: flex;
+    align-items: center;
+    margin-bottom: 4px;
+    padding: 2px;
+    border: 1px solid #ccc;
+    background: var(--toolbar-bg);
+    width: 100%;
+    box-sizing: border-box;
+}
+#chapter_editor div {
+    text-indent: 2em;
+    margin: 0 0 1em 0;
+}
+.toolbar button {
+    font-weight: bold;
+    border: 1px solid #ccc;
+    background: var(--bg-color);
+    margin-right: 4px;
+    color: var(--text-color);
+}
+.toolbar select {
+    border: 1px solid #ccc;
+    background: var(--bg-color);
+    color: var(--text-color);
+    margin-right: 4px;
+}
+.toolbar .gap-right {
+    margin-right: 12px;
+}
+.toolbar .gap-left {
+    margin-left: 12px;
+    margin-right: 4px;
+}
+
+#word_count {
+    font-weight: bold;
+}
+
+/* collapsible tree */
+.tree { list-style: none; padding-left: 0; }
+.tree ul { list-style: none; padding-left: 1em; margin: 0; }
+.tree-item { margin: 2px 0; }
+.tree > li.book-root { margin-bottom: 6px; }
+.tree .item-line { display: flex; align-items: center; }
+.tree .toggle { cursor: pointer; width: 1em; display: inline-block; }
+.tree .toggle::before { content: '\25BC'; }
+.tree li.collapsed > .item-line > .toggle::before { content: '\25B6'; }
+.tree li.collapsed > ul { display: none; }
+.tree > li > .item-line > a { font-weight: bold; }
+.tree .chapter-item {
+    margin-left: 1em;
+}
+
+.app-title {
+    margin: 0 0 0.5em 0;
+}
+.app-title .version {
+    font-size: 0.8em;
+    margin-left: 0.5em;
+    color: var(--text-color);
+}
+
+/* drag and drop lists */
+.sortable li {
+    cursor: move;
+    margin-bottom: 4px;
+}
+/* folder page styling */
+.folder-header {
+    margin-bottom: 1em;
+}
+.folder-actions {
+    margin-top: 0.5em;
+}
+.item-list {
+    list-style: none;
+    padding-left: 0;
+    margin-bottom: 1em;
+}
+.item-list li {
+    background: var(--bg-color);
+    border: 1px solid #ccc;
+    padding: 4px 6px;
+    margin-bottom: 4px;
+}
+
+.delete-folder-form {
+    margin-top: 1em;
+}
+
+pre.changelog {
+    white-space: pre-wrap;
+}
+
+/* pre-editing mode */
+.preedit-label { display: none; font-weight: bold; margin-bottom: 4px; }
+.preedit-mode .preedit-label { display: block; }
+.preedit-icons { display: none; margin-bottom: 10px; }
+.preedit-mode .preedit-icons { display: flex; flex-direction: column; gap: 4px; }
+.pe { display: none; }
+.preedit-mode .pe { display: inline; margin-left: 2px; }
+.pe-cut::after { content: '✂️'; }
+.pe-pin::after { content: '📌'; }
+.pe-spiral::after { content: '🌀'; }
+.pe-contradict::after { content: '⁉️'; }
+.pe-love::after { content: '❤️'; }
