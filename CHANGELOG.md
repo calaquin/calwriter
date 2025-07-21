@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.9.3 - 2025-07-21 19:05 UTC
+- Crop sliders replaced with a crop mode button
+- Image edits trigger autosave so changes persist
+
 ## 0.6.9.2 - 2025-07-21 18:38 UTC
 - Fixed images not saving in chapters; edits to pictures now persist
 

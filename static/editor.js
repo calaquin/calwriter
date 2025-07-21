@@ -173,8 +173,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const imageTools = document.getElementById('image_tools');
     const widthInput = document.getElementById('img_width');
     const heightInput = document.getElementById('img_height');
-    const cropX = document.getElementById('crop_x');
-    const cropY = document.getElementById('crop_y');
+    const cropBtn = document.getElementById('img_crop_mode');
+    let cropMode = false;
     let currentImage = null;
 
     const handleBox = document.createElement('div');
@@ -188,6 +188,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     document.body.appendChild(handleBox);
 
+    function updateHandleStyles() {
+        handleBox.querySelectorAll('.img-handle').forEach(h => {
+            h.className = 'img-handle ' + (cropMode ? 'crop' : 'resize');
+        });
+    }
+
     function parseClip(cp) {
         if (!cp || !cp.startsWith('inset(')) return {top:0,right:0,bottom:0,left:0};
         const vals = cp.slice(6,-1).replace(/px/g,'').split(/\s+/).map(parseFloat);
@@ -196,6 +202,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateHandles() {
         if (!currentImage) return;
+        updateHandleStyles();
         const rect = currentImage.getBoundingClientRect();
         const clip = parseClip(currentImage.style.clipPath);
         const left = rect.left + window.scrollX + clip.left;
@@ -229,7 +236,7 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
         drag = {
             dir: e.target.dataset.dir,
-            mode: e.ctrlKey ? 'crop' : 'resize',
+            mode: cropMode ? 'crop' : 'resize',
             startX: e.clientX,
             startY: e.clientY,
             startWidth: currentImage.offsetWidth,
@@ -281,6 +288,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.removeEventListener('mousemove', onDrag);
         document.removeEventListener('mouseup', stopDrag);
         drag = null;
+        if (editor) editor.dispatchEvent(new Event('input'));
     }
 
     handleBox.addEventListener('mousedown', startDrag);
@@ -292,9 +300,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 imageTools.style.display = 'block';
                 widthInput.value = parseInt(img.style.width) || img.width;
                 heightInput.value = parseInt(img.style.height) || img.height;
-                const pos = img.style.objectPosition ? img.style.objectPosition.split(' ') : ['50%', '50%'];
-                cropX.value = parseInt(pos[0]);
-                cropY.value = parseInt(pos[1]);
                 updateHandles();
             } else {
                 imageTools.style.display = 'none';
@@ -309,31 +314,37 @@ document.addEventListener('DOMContentLoaded', () => {
             currentImage.style.width = widthInput.value + 'px';
             currentImage.style.height = heightInput.value + 'px';
             updateHandles();
+            if (editor) editor.dispatchEvent(new Event('input'));
         });
         document.getElementById('img_align_left').addEventListener('click', () => {
             if (!currentImage) return;
             currentImage.style.float = 'left';
             currentImage.style.display = '';
             currentImage.style.margin = '0 10px 10px 0';
+            if (editor) editor.dispatchEvent(new Event('input'));
         });
         document.getElementById('img_align_center').addEventListener('click', () => {
             if (!currentImage) return;
             currentImage.style.float = 'none';
             currentImage.style.display = 'block';
             currentImage.style.margin = '0 auto 10px';
+            if (editor) editor.dispatchEvent(new Event('input'));
         });
         document.getElementById('img_align_right').addEventListener('click', () => {
             if (!currentImage) return;
             currentImage.style.float = 'right';
             currentImage.style.display = '';
             currentImage.style.margin = '0 0 10px 10px';
+            if (editor) editor.dispatchEvent(new Event('input'));
         });
-        document.getElementById('img_apply_crop').addEventListener('click', () => {
-            if (!currentImage) return;
-            currentImage.style.objectFit = 'cover';
-            currentImage.style.objectPosition = cropX.value + '% ' + cropY.value + '%';
-            updateHandles();
-        });
+        if (cropBtn) {
+            cropBtn.addEventListener('click', () => {
+                cropMode = !cropMode;
+                cropBtn.classList.toggle('active', cropMode);
+                updateHandleStyles();
+                updateHandles();
+            });
+        }
     }
 
     const sidebar = document.getElementById('notes_sidebar');
