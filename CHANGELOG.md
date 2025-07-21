@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.9.3 - 2025-07-21 19:00 UTC
+- Crop sliders removed; crop mode toggled with a button
+- Image edits save automatically when switching chapters
+
 ## 0.6.9.2 - 2025-07-21 18:38 UTC
 - Fixed images not saving in chapters; edits to pictures now persist
 
