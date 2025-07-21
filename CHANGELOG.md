@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.1 - 2025-07-21 21:00 UTC
+- Added project logo to documentation and about page
+- Version bump to 0.7.1
+
 ## 0.7 - 2025-07-21 20:30 UTC
 - Removed broken image editing tools
 - Version bump to 0.7

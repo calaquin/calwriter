@@ -278,4 +278,11 @@ pre.changelog {
 .pe-contradict::after { content: '⁉️'; }
 .pe-love::after { content: '❤️'; }
 
+/* About page logo */
+.about-logo {
+    max-width: 200px;
+    display: block;
+    margin: 10px 0;
+}
+
 
