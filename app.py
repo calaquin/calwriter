@@ -15,6 +15,7 @@ import re
 from bs4 import BeautifulSoup
 from docx import Document
 import bleach
+from bleach.css_sanitizer import CSSSanitizer, ALLOWED_CSS_PROPERTIES
 from docx.shared import Inches
 
 app = Flask(__name__)
@@ -129,7 +130,18 @@ def sanitize_html(html: str) -> str:
         "*": ["class", "style"],
         "img": ["src", "alt", "width", "height", "style"]
     }
-    return bleach.clean(html, tags=allowed_tags, attributes=allowed_attrs, strip=True)
+    css_props = set(ALLOWED_CSS_PROPERTIES).union({
+        "width", "height", "float", "margin", "clip-path",
+        "object-fit", "object-position", "display"
+    })
+    css_sanitizer = CSSSanitizer(allowed_css_properties=css_props)
+    return bleach.clean(
+        html,
+        tags=allowed_tags,
+        attributes=allowed_attrs,
+        strip=True,
+        css_sanitizer=css_sanitizer,
+    )
 
 
 def html_to_docx(html: str, path: str) -> None:
