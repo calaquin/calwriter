@@ -49,20 +49,6 @@
       <button type="button" data-class="pe-love" title="Keep this">❤️ Love</button>
       <button type="button" onclick="clearPreEditTags()" title="Remove all tags in selection">Clear Tags</button>
     </div>
-    <div id="image_tools" class="image-tools">
-      <h4>Image Tools</h4>
-      <label>Width <input type="number" id="img_width" /></label>
-      <label>Height <input type="number" id="img_height" /></label>
-      <button type="button" id="img_apply_size">Apply Size</button>
-      <div class="img-align">
-        <button type="button" id="img_align_left">Left</button>
-        <button type="button" id="img_align_center">Center</button>
-        <button type="button" id="img_align_right">Right</button>
-      </div>
-      <label>Crop X <input type="range" id="crop_x" min="0" max="100" value="50" /></label>
-      <label>Crop Y <input type="range" id="crop_y" min="0" max="100" value="50" /></label>
-      <button type="button" id="img_apply_crop">Apply Crop</button>
-    </div>
     {% if notes_text %}
     <p><a href="{{ url_for('download_note', folder=folder, chapter=chapter) }}">Download Notes</a></p>
     {% endif %}

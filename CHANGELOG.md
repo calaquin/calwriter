@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7 - 2025-07-21 20:30 UTC
+- Removed broken image editing tools
+- Version bump to 0.7
+
 ## 0.6.9.2 - 2025-07-21 18:38 UTC
 - Fixed images not saving in chapters; edits to pictures now persist
 
