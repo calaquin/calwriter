@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.7.2 - 2025-07-21 22:00 UTC
+- Added favicon to browser tabs
+
 ## 0.7.1 - 2025-07-21 21:00 UTC
 - Added project logo to documentation and about page
 - Version bump to 0.7.1
