@@ -21,7 +21,7 @@ app = Flask(__name__)
 app.secret_key = 'change-this'
 
 # Application version
-VERSION = "0.6.9.2"
+VERSION = "0.6.9.3"
 app.jinja_env.globals['app_version'] = VERSION
 
 DATA_DIR = os.environ.get('DATA_DIR', os.path.join(os.getcwd(), 'data'))
@@ -129,7 +129,22 @@ def sanitize_html(html: str) -> str:
         "*": ["class", "style"],
         "img": ["src", "alt", "width", "height", "style"]
     }
-    return bleach.clean(html, tags=allowed_tags, attributes=allowed_attrs, strip=True)
+    # allow additional CSS properties so edited images keep their appearance
+    from bleach.css_sanitizer import CSSSanitizer
+    extra_css = {
+        "width", "height", "float", "margin", "display",
+        "object-fit", "object-position", "clip-path"
+    }
+    sanitizer = CSSSanitizer(
+        allowed_css_properties=set(CSSSanitizer.ALLOWED_CSS_PROPERTIES) | extra_css
+    )
+    return bleach.clean(
+        html,
+        tags=allowed_tags,
+        attributes=allowed_attrs,
+        css_sanitizer=sanitizer,
+        strip=True,
+    )
 
 
 def html_to_docx(html: str, path: str) -> None:
@@ -164,6 +179,14 @@ def html_to_docx(html: str, path: str) -> None:
                 bio = BytesIO(data)
                 width = elem.get("width")
                 height = elem.get("height")
+                if (not width or not width.isdigit()) and elem.get("style"):
+                    m = re.search(r"width:\s*(\d+)", elem["style"])
+                    if m:
+                        width = m.group(1)
+                if (not height or not height.isdigit()) and elem.get("style"):
+                    m = re.search(r"height:\s*(\d+)", elem["style"])
+                    if m:
+                        height = m.group(1)
                 w = Inches(int(width)/96) if width and width.isdigit() else None
                 h = Inches(int(height)/96) if height and height.isdigit() else None
                 doc.add_picture(bio, width=w, height=h)
@@ -215,6 +238,14 @@ def append_html_to_docx(doc: Document, html: str) -> None:
                 bio = BytesIO(data)
                 width = elem.get("width")
                 height = elem.get("height")
+                if (not width or not width.isdigit()) and elem.get("style"):
+                    m = re.search(r"width:\s*(\d+)", elem["style"])
+                    if m:
+                        width = m.group(1)
+                if (not height or not height.isdigit()) and elem.get("style"):
+                    m = re.search(r"height:\s*(\d+)", elem["style"])
+                    if m:
+                        height = m.group(1)
                 w = Inches(int(width)/96) if width and width.isdigit() else None
                 h = Inches(int(height)/96) if height and height.isdigit() else None
                 doc.add_picture(bio, width=w, height=h)

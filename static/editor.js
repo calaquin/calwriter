@@ -259,6 +259,8 @@ document.addEventListener('DOMContentLoaded', () => {
             h = Math.max(20, h);
             currentImage.style.width = w + 'px';
             currentImage.style.height = h + 'px';
+            currentImage.setAttribute('width', parseInt(w));
+            currentImage.setAttribute('height', parseInt(h));
             widthInput.value = parseInt(w);
             heightInput.value = parseInt(h);
         } else {
@@ -308,6 +310,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!currentImage) return;
             currentImage.style.width = widthInput.value + 'px';
             currentImage.style.height = heightInput.value + 'px';
+            currentImage.setAttribute('width', parseInt(widthInput.value));
+            currentImage.setAttribute('height', parseInt(heightInput.value));
             updateHandles();
         });
         document.getElementById('img_align_left').addEventListener('click', () => {

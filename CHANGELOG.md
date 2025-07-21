@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.6.9.3 - 2025-07-21 20:14 UTC
+- Preserve image crop and size when returning to a chapter
+
 ## 0.6.9.2 - 2025-07-21 18:38 UTC
 - Fixed images not saving in chapters; edits to pictures now persist
 
