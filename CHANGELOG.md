@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.3 - 2025-07-21 22:30 UTC
+- Sidebar displays the app icon next to the version number which links to the changelog
+- Removed Changelog link from sidebar
+
 ## 0.7.2 - 2025-07-21 22:00 UTC
 - Added favicon to browser tabs
 

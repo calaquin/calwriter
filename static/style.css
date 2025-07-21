@@ -38,6 +38,11 @@ body.dark {
     font-size: 0.8em;
     margin-left: 0.5em;
 }
+#sidebar .sidebar-title .sidebar-icon {
+    width: 16px;
+    height: 16px;
+    vertical-align: middle;
+}
 #search_form {
     margin-bottom: 10px;
 }
