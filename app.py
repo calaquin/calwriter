@@ -1017,6 +1017,13 @@ def search():
     return render_template('search.html', q=query, results=results, folders=folders)
 
 
+@app.route('/assets/<path:filename>')
+def asset_file(filename):
+    """Serve files from the assets directory."""
+    path = os.path.join(os.path.dirname(__file__), 'assets')
+    return send_from_directory(path, filename)
+
+
 @app.route('/help')
 def help_page():
     """Display a basic help page."""

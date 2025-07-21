@@ -1,6 +1,6 @@
 # CalWriter
 
-![CalWriter Logo](assets/logo.png)
+<img src="assets/logo.png" alt="CalWriter Logo" width="25%" />
 
 Version 0.7.1
 

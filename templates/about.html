@@ -2,7 +2,7 @@
 {% block title %}About{% endblock %}
 {% block content %}
 <h1>About CalWriter</h1>
-<img src="/assets/logo.png" alt="CalWriter Logo" class="about-logo" />
+<img src="{{ url_for('asset_file', filename='logo.png') }}" alt="CalWriter Logo" class="about-logo" />
 <p>CalWriter began as a small experiment with Flask and quickly grew into a
 lightweight writing application. It was designed to keep your work organized in
 a simple folder structure while still providing basic word processor tools.</p>
