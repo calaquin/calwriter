@@ -281,6 +281,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.removeEventListener('mousemove', onDrag);
         document.removeEventListener('mouseup', stopDrag);
         drag = null;
+        if (editor) editor.dispatchEvent(new Event('input'));
     }
 
     handleBox.addEventListener('mousedown', startDrag);
@@ -309,30 +310,35 @@ document.addEventListener('DOMContentLoaded', () => {
             currentImage.style.width = widthInput.value + 'px';
             currentImage.style.height = heightInput.value + 'px';
             updateHandles();
+            if (editor) editor.dispatchEvent(new Event('input'));
         });
         document.getElementById('img_align_left').addEventListener('click', () => {
             if (!currentImage) return;
             currentImage.style.float = 'left';
             currentImage.style.display = '';
             currentImage.style.margin = '0 10px 10px 0';
+            if (editor) editor.dispatchEvent(new Event('input'));
         });
         document.getElementById('img_align_center').addEventListener('click', () => {
             if (!currentImage) return;
             currentImage.style.float = 'none';
             currentImage.style.display = 'block';
             currentImage.style.margin = '0 auto 10px';
+            if (editor) editor.dispatchEvent(new Event('input'));
         });
         document.getElementById('img_align_right').addEventListener('click', () => {
             if (!currentImage) return;
             currentImage.style.float = 'right';
             currentImage.style.display = '';
             currentImage.style.margin = '0 0 10px 10px';
+            if (editor) editor.dispatchEvent(new Event('input'));
         });
         document.getElementById('img_apply_crop').addEventListener('click', () => {
             if (!currentImage) return;
             currentImage.style.objectFit = 'cover';
             currentImage.style.objectPosition = cropX.value + '% ' + cropY.value + '%';
             updateHandles();
+            if (editor) editor.dispatchEvent(new Event('input'));
         });
     }
 
