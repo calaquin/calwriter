@@ -293,6 +293,9 @@ pre.changelog {
 #image_tools .img-align button {
     margin-right: 4px;
 }
+#img_crop_mode.active {
+    background: #fdd;
+}
 
 /* image handles */
 #img_handles{position:absolute;display:none;pointer-events:none;}

@@ -173,8 +173,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const imageTools = document.getElementById('image_tools');
     const widthInput = document.getElementById('img_width');
     const heightInput = document.getElementById('img_height');
-    const cropX = document.getElementById('crop_x');
-    const cropY = document.getElementById('crop_y');
+    const cropBtn = document.getElementById('img_crop_mode');
+    let cropMode = false;
     let currentImage = null;
 
     const handleBox = document.createElement('div');
@@ -188,6 +188,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     document.body.appendChild(handleBox);
 
+    function updateHandleMode() {
+        handleBox.querySelectorAll('.img-handle').forEach(h => {
+            h.classList.toggle('crop', cropMode);
+            h.classList.toggle('resize', !cropMode);
+        });
+    }
+
     function parseClip(cp) {
         if (!cp || !cp.startsWith('inset(')) return {top:0,right:0,bottom:0,left:0};
         const vals = cp.slice(6,-1).replace(/px/g,'').split(/\s+/).map(parseFloat);
@@ -196,6 +203,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateHandles() {
         if (!currentImage) return;
+        updateHandleMode();
         const rect = currentImage.getBoundingClientRect();
         const clip = parseClip(currentImage.style.clipPath);
         const left = rect.left + window.scrollX + clip.left;
@@ -229,7 +237,7 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
         drag = {
             dir: e.target.dataset.dir,
-            mode: e.ctrlKey ? 'crop' : 'resize',
+            mode: cropMode ? 'crop' : 'resize',
             startX: e.clientX,
             startY: e.clientY,
             startWidth: currentImage.offsetWidth,
@@ -292,9 +300,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 imageTools.style.display = 'block';
                 widthInput.value = parseInt(img.style.width) || img.width;
                 heightInput.value = parseInt(img.style.height) || img.height;
-                const pos = img.style.objectPosition ? img.style.objectPosition.split(' ') : ['50%', '50%'];
-                cropX.value = parseInt(pos[0]);
-                cropY.value = parseInt(pos[1]);
+                updateHandleMode();
                 updateHandles();
             } else {
                 imageTools.style.display = 'none';
@@ -328,12 +334,13 @@ document.addEventListener('DOMContentLoaded', () => {
             currentImage.style.display = '';
             currentImage.style.margin = '0 0 10px 10px';
         });
-        document.getElementById('img_apply_crop').addEventListener('click', () => {
-            if (!currentImage) return;
-            currentImage.style.objectFit = 'cover';
-            currentImage.style.objectPosition = cropX.value + '% ' + cropY.value + '%';
-            updateHandles();
-        });
+        if (cropBtn) {
+            cropBtn.addEventListener('click', () => {
+                cropMode = !cropMode;
+                cropBtn.classList.toggle('active', cropMode);
+                updateHandleMode();
+            });
+        }
     }
 
     const sidebar = document.getElementById('notes_sidebar');

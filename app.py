@@ -15,13 +15,14 @@ import re
 from bs4 import BeautifulSoup
 from docx import Document
 import bleach
+from bleach.css_sanitizer import CSSSanitizer
 from docx.shared import Inches
 
 app = Flask(__name__)
 app.secret_key = 'change-this'
 
 # Application version
-VERSION = "0.6.9.2"
+VERSION = "0.6.9.3"
 app.jinja_env.globals['app_version'] = VERSION
 
 DATA_DIR = os.environ.get('DATA_DIR', os.path.join(os.getcwd(), 'data'))
@@ -129,7 +130,18 @@ def sanitize_html(html: str) -> str:
         "*": ["class", "style"],
         "img": ["src", "alt", "width", "height", "style"]
     }
-    return bleach.clean(html, tags=allowed_tags, attributes=allowed_attrs, strip=True)
+    allowed_css = [
+        "width", "height", "float", "display", "margin",
+        "clip-path", "object-fit", "object-position"
+    ]
+    css = CSSSanitizer(allowed_css_properties=allowed_css)
+    return bleach.clean(
+        html,
+        tags=allowed_tags,
+        attributes=allowed_attrs,
+        strip=True,
+        css_sanitizer=css
+    )
 
 
 def html_to_docx(html: str, path: str) -> None:
