@@ -1,0 +1,16 @@
+{% extends "layout.html" %}
+{% block title %}Search{% endblock %}
+{% block content %}
+<h1>Search Results for "{{ q }}"</h1>
+{% if results %}
+<ul>
+{% for r in results %}
+  <li>
+    <a href="/folder/{{ r.folder }}/chapter/{{ r.chapter }}">{{ r.folder }} / {{ r.chapter }}</a>{% if r.type == 'notes' %} (in notes){% endif %}
+  </li>
+{% endfor %}
+</ul>
+{% else %}
+<p>No matches found.</p>
+{% endif %}
+{% endblock %}
