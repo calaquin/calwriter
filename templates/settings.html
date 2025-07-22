@@ -13,7 +13,7 @@
   <button type="submit">Save Settings</button>
 </form>
 
-<form class="delete-folder-form" action="/folder/{{ folder }}/delete" method="post" onsubmit="return confirm('{% if parent %}Delete sub-folder \"{{ folder.split('/')[-1] }}\"?{% else %}Delete book \"{{ folder.split('/')[-1] }}\"?{% endif %}');">
+<form class="delete-folder-form" action="/folder/{{ folder }}/delete" method="post" onsubmit="return confirm('Are you sure you want to delete this file?\n{{ folder|replace('/', ' -> ') }}');">
   <button type="submit">{% if parent %}Delete Sub-Folder{% else %}Delete Book{% endif %}</button>
 </form>
 

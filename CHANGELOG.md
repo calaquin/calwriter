@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.5.4 - 2025-07-22 15:45 UTC
+- Toolbar buttons replaced with icons
+- Deletion confirmation shows file path on a new line
+
+## 0.7.5.3 - 2025-07-22 15:32 UTC
+- Moved author field above chapters field in book wizard
+- Confirm deletion dialog shows full path
+- Version bump to 0.7.5.3
+
+## 0.7.5.2 - 2025-07-22 15:30 UTC
+- Book wizard supports author and color and creates "Chapter One"
+
+## 0.7.5.1 - 2025-07-22 15:15 UTC
+- Added book creation wizard for setting title and common sub-folders
+- Enlarged sidebar version text size
+
 ## 0.7.5 - 2025-07-22 01:10 UTC
 - Added option on the home page to download all data as a zip file
 - Removed About link from the sidebar

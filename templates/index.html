@@ -29,8 +29,9 @@
   </li>
   {% endfor %}
 </ul>
-<form action="/folder/create" method="post">
+<form action="/folder/create" method="post" class="create-book-form">
   <input type="text" name="name" placeholder="New book" />
   <button type="submit">Create Book</button>
+  <a href="{{ url_for('book_wizard') }}" class="wizard-link">Book Creation Wizard</a>
 </form>
 {% endblock %}
