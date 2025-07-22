@@ -8,7 +8,8 @@
 }
 
 body {
-    font-family: Arial, sans-serif;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    line-height: 1.4;
     display: flex;
     height: 100vh;
     margin: 0;
@@ -29,6 +30,7 @@ body.dark {
     padding: 10px;
     overflow-y: auto;
     height: 100vh;
+    box-shadow: 2px 0 5px rgba(0,0,0,0.1);
 }
 #sidebar .sidebar-title {
     font-weight: bold;
@@ -105,6 +107,8 @@ body.chapter-view #chapter_area h1 {
     margin-right: 4px;
     border: 1px solid #ccc;
     border-bottom: none;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
 }
 .chapter-tab.active {
     background: var(--bg-color);
@@ -186,6 +190,7 @@ body.chapter-view #chapter_area h1 {
     background: var(--toolbar-bg);
     width: 100%;
     box-sizing: border-box;
+    border-radius: 4px;
 }
 #chapter_editor div {
     text-indent: 2em;
@@ -197,6 +202,7 @@ body.chapter-view #chapter_area h1 {
     background: var(--bg-color);
     margin-right: 4px;
     color: var(--text-color);
+    border-radius: 4px;
 }
 
 .icon-btn::before {
@@ -231,14 +237,24 @@ body.chapter-view #chapter_area h1 {
 /* collapsible tree */
 .tree { list-style: none; padding-left: 0; }
 .tree ul { list-style: none; padding-left: 1em; margin: 0; }
-.tree-item { margin: 2px 0; }
+.tree-item {
+    margin: 2px 0;
+    border-radius: 4px;
+}
 .tree > li.book-root { margin-bottom: 6px; }
-.tree .item-line { display: flex; align-items: center; }
+.tree .item-line {
+    display: flex;
+    align-items: center;
+    padding: 2px 4px;
+}
 .tree .toggle { cursor: pointer; width: 1em; display: inline-block; }
 .tree .toggle::before { content: '\25BC'; }
 .tree li.collapsed > .item-line > .toggle::before { content: '\25B6'; }
 .tree li.collapsed > ul { display: none; }
 .tree > li > .item-line > a { font-weight: bold; }
+.tree .item-line:hover {
+    background: var(--sidebar-bg);
+}
 .tree .chapter-item {
     margin-left: 1em;
 }
@@ -274,6 +290,7 @@ body.chapter-view #chapter_area h1 {
     border: 1px solid #ccc;
     padding: 4px 6px;
     margin-bottom: 4px;
+    border-radius: 4px;
 }
 
 .delete-folder-form {
@@ -307,6 +324,40 @@ pre.changelog {
 .wizard-link {
     margin-left: 0.5em;
     font-size: 0.9em;
+}
+
+/* Generic form styling */
+input[type="text"],
+select {
+    padding: 4px 6px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+button {
+    padding: 4px 10px;
+    border: 1px solid #999;
+    border-radius: 4px;
+    cursor: pointer;
+    background: var(--toolbar-bg);
+    color: var(--text-color);
+}
+
+button:hover {
+    background: var(--sidebar-bg);
+}
+
+#main {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+a {
+    color: #0645ad;
+}
+
+a:hover {
+    text-decoration: underline;
 }
 
 
