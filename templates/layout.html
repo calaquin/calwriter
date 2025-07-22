@@ -12,11 +12,10 @@
 <body class="{% if app_settings.dark_mode %}dark {% endif %}{% block body_class %}{% endblock %}" style="--sidebar-bg: {{ app_settings.sidebar_color if not app_settings.dark_mode else '#333' }}; --text-color: {{ app_settings.text_color if not app_settings.dark_mode else '#eee' }}; --bg-color: {{ app_settings.bg_color if not app_settings.dark_mode else '#222' }}; --toolbar-bg: {{ app_settings.toolbar_color if not app_settings.dark_mode else '#555' }}; --editor-bg: {{ app_settings.editor_color if not app_settings.dark_mode else '#444' }}">
 <div id="sidebar">
   <div class="sidebar-title">
-    <img src="{{ url_for('asset_file', filename='favicon.ico') }}" class="sidebar-icon" alt="CalWriter icon">
-    <a href="{{ url_for('changelog_page') }}" class="version">Version {{ app_version }}</a>
+    <a href="{{ url_for('index') }}"><img src="{{ url_for('asset_file', filename='favicon.ico') }}" class="sidebar-icon" alt="CalWriter icon"></a>
+    <a href="{{ url_for('changelog_page') }}" class="version">CalWriter {{ app_version }}</a>
   </div>
-  <a href="{{ url_for('index') }}">Home</a>
-  <a href="{{ url_for('app_settings_page') }}">App Settings</a>
+  <a href="{{ url_for('app_settings_page') }}">Settings</a>
   <a href="{{ url_for('about_page') }}">About</a>
   <form action="{{ url_for('search') }}" method="get" id="search_form">
     <input type="text" name="q" placeholder="Search" />

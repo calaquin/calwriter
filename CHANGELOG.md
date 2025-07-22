@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.4 - 2025-07-22 00:55 UTC
+- Sidebar icon now links to the home page and is larger
+- Version label displays "CalWriter" followed by the version number
+- Removed Home link and renamed App Settings to Settings
+
 ## 0.7.3 - 2025-07-21 22:30 UTC
 - Sidebar displays the app icon next to the version number which links to the changelog
 - Removed Changelog link from sidebar
