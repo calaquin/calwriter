@@ -20,18 +20,18 @@
           <option value="4">Large</option>
           <option value="5">Larger</option>
         </select>
-        <button type="button" onclick="execCmd('bold')" title="Bold">B</button>
-        <button type="button" onclick="execCmd('italic')" title="Italic">I</button>
-        <button type="button" class="gap-right" onclick="execCmd('underline')" title="Underline">U</button>
-        <button type="button" onclick="execCmd('insertUnorderedList')" title="Bulleted list">&bull;</button>
-        <button type="button" onclick="execCmd('insertOrderedList')" title="Numbered list">1.</button>
-        <button type="button" onclick="execCmd('indent')" title="Indent">&#8594;</button>
-        <button type="button" onclick="execCmd('outdent')" title="Outdent">&#8592;</button>
-        <button type="button" onclick="execCmd('insertHorizontalRule')" title="Horizontal line">HR</button>
-        <button type="button" onclick="findAndReplace()" title="Find and replace">Find/Replace</button>
+        <button type="button" class="icon-btn icon-bold" onclick="execCmd('bold')" title="Bold"></button>
+        <button type="button" class="icon-btn icon-italic" onclick="execCmd('italic')" title="Italic"></button>
+        <button type="button" class="icon-btn icon-underline gap-right" onclick="execCmd('underline')" title="Underline"></button>
+        <button type="button" class="icon-btn" onclick="execCmd('insertUnorderedList')" title="Bulleted list">&bull;</button>
+        <button type="button" class="icon-btn" onclick="execCmd('insertOrderedList')" title="Numbered list">1.</button>
+        <button type="button" class="icon-btn" onclick="execCmd('indent')" title="Indent">&#8594;</button>
+        <button type="button" class="icon-btn" onclick="execCmd('outdent')" title="Outdent">&#8592;</button>
+        <button type="button" class="icon-btn icon-hr" onclick="execCmd('insertHorizontalRule')" title="Horizontal line"></button>
+        <button type="button" class="icon-btn icon-find" onclick="findAndReplace()" title="Find and replace"></button>
         <button type="button" id="preedit_toggle" onclick="togglePreEdit()" title="Toggle pre-edit mode" class="gap-left">Pre-Edit</button>
-        <button type="button" class="gap-left" id="undo_btn" title="Undo">Undo</button>
-        <button type="button" id="redo_btn" title="Redo">Redo</button>
+        <button type="button" class="icon-btn icon-undo gap-left" id="undo_btn" title="Undo"></button>
+        <button type="button" class="icon-btn icon-redo" id="redo_btn" title="Redo"></button>
       </div>
       <div id="chapter_editor" contenteditable="true" data-save-url="{{ url_for('autosave_chapter', folder=folder, chapter=chapter) }}">{{ chapter_html|safe }}</div>
       <input type="hidden" name="text" id="chapter_text" />

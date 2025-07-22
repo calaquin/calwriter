@@ -198,6 +198,18 @@ body.chapter-view #chapter_area h1 {
     margin-right: 4px;
     color: var(--text-color);
 }
+
+.icon-btn::before {
+    display: inline-block;
+    font-weight: bold;
+}
+.icon-bold::before { content: 'B'; }
+.icon-italic::before { content: 'I'; font-style: italic; }
+.icon-underline::before { content: 'U'; text-decoration: underline; }
+.icon-hr::before { content: '\2015'; }
+.icon-find::before { content: '\1F50D'; }
+.icon-undo::before { content: '\21ba'; }
+.icon-redo::before { content: '\21bb'; }
 .toolbar select {
     border: 1px solid #ccc;
     background: var(--bg-color);

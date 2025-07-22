@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.5.4 - 2025-07-22 15:45 UTC
+- Toolbar buttons replaced with icons
+- Deletion confirmation shows file path on a new line
+
 ## 0.7.5.3 - 2025-07-22 15:32 UTC
 - Moved author field above chapters field in book wizard
 - Confirm deletion dialog shows full path
