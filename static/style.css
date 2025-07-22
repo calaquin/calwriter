@@ -367,4 +367,27 @@ input[type="text"] {
     margin-bottom: 4px;
 }
 
+/* Home page styling */
+.home-container {
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.home-section {
+    margin-bottom: 2em;
+}
+
+.home-section form {
+    margin-top: 0.5em;
+}
+
+.db-section form {
+    display: inline-block;
+    margin-right: 10px;
+}
+
+#book_list.item-list li {
+    cursor: default;
+}
+
 
