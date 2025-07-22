@@ -10,28 +10,42 @@
   <a href="{{ url_for('about_page') }}">About</a> |
   <a href="{{ url_for('download_database') }}">Download Database</a>
 </p>
-<h2>Books</h2>
-<p>Start a new book or open an existing one.</p>
-<ul id="book_list" class="sortable" data-type="folder">
-  {% for folder in all_books %}
-  <li data-name="{{ folder }}">
-    {% if folder in open_books %}
-    <a href="/folder/{{ folder }}">{{ folder }}</a>
-    <form class="close-book-form" action="/folder/{{ folder }}/close" method="post" style="display:inline">
-      <button type="submit">Close</button>
-    </form>
-    {% else %}
-    <span>{{ folder }}</span>
-    <form action="/folder/{{ folder }}/open" method="post" style="display:inline">
-      <button type="submit">Open</button>
-    </form>
-    {% endif %}
-  </li>
-  {% endfor %}
-</ul>
-<form action="/folder/create" method="post" class="create-book-form">
-  <input type="text" name="name" placeholder="New book" />
-  <button type="submit">Create Book</button>
-  <a href="{{ url_for('book_wizard') }}" class="wizard-link">Book Creation Wizard</a>
-</form>
+
+<div class="home-section book-section">
+  <h2>Books</h2>
+  <p>Start a new book or open an existing one.</p>
+  <ul id="book_list" class="sortable item-list" data-type="folder">
+    {% for folder in all_books %}
+    <li data-name="{{ folder }}">
+      {% if folder in open_books %}
+      <a href="/folder/{{ folder }}">{{ folder }}</a>
+      <form class="close-book-form" action="/folder/{{ folder }}/close" method="post" style="display:inline">
+        <button type="submit">Close</button>
+      </form>
+      {% else %}
+      <span>{{ folder }}</span>
+      <form action="/folder/{{ folder }}/open" method="post" style="display:inline">
+        <button type="submit">Open</button>
+      </form>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  <form action="/folder/create" method="post" class="create-book-form">
+    <input type="text" name="name" placeholder="New book" />
+    <button type="submit">Create Book</button>
+    <a href="{{ url_for('book_wizard') }}" class="wizard-link">Book Creation Wizard</a>
+  </form>
+</div>
+
+<div class="home-section db-tools">
+  <h2>Database Tools</h2>
+  <form action="{{ url_for('export_db') }}" method="get" class="export-db-form">
+    <button type="submit">Export Database</button>
+  </form>
+  <form action="{{ url_for('import_db') }}" method="post" enctype="multipart/form-data" class="import-db-form">
+    <input type="file" name="file" accept=".calwdb" required />
+    <button type="submit">Import Database</button>
+  </form>
+</div>
 {% endblock %}

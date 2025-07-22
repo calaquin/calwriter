@@ -2,7 +2,7 @@
 
 <img src="assets/logo.png" alt="CalWriter Logo" width="25%" />
 
-Version 0.7.5.5
+Version 0.8
 
 CalWriter is a simple Flask application for drafting novels.
 
@@ -22,6 +22,7 @@ CalWriter is a simple Flask application for drafting novels.
 - Editor background color can be customized
 - Books can specify a color for their tab groups
 - Optional pre-edit mode for inserting icon tags with a click
+- Export and import your database as `.calwdb` files
 
 ## Running with Docker
 

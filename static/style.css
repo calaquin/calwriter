@@ -367,4 +367,19 @@ input[type="text"] {
     margin-bottom: 4px;
 }
 
+.home-section {
+    margin-bottom: 2em;
+}
+
+.db-tools {
+    border-top: 1px solid #ccc;
+    padding-top: 1em;
+}
+
+.create-book-form,
+.export-db-form,
+.import-db-form {
+    margin-top: 0.5em;
+}
+
 
