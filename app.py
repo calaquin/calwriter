@@ -21,7 +21,7 @@ app = Flask(__name__)
 app.secret_key = 'change-this'
 
 # Application version
-VERSION = "0.7.5.1"
+VERSION = "0.7.5.2"
 app.jinja_env.globals['app_version'] = VERSION
 
 DATA_DIR = os.environ.get('DATA_DIR', os.path.join(os.getcwd(), 'data'))
@@ -462,16 +462,31 @@ def book_wizard():
     if request.method == 'POST':
         title = safe_name(request.form.get('title', '')).strip()
         chapters = safe_name(request.form.get('chapters', 'Chapters')).strip()
+        author_text = request.form.get('author', '').strip()
+        color_value = request.form.get('color', '#dddddd').strip()
         extras = request.form.getlist('extras')
         if not title:
             flash('Book title required')
             return redirect(url_for('book_wizard'))
         path = os.path.join(DATA_DIR, title)
         os.makedirs(path, exist_ok=True)
+        if author_text:
+            write_author(title, author_text)
+        if color_value:
+            write_color(title, color_value)
         created = []
         if chapters:
-            os.makedirs(os.path.join(path, chapters), exist_ok=True)
+            chap_folder = os.path.join(path, chapters)
+            os.makedirs(chap_folder, exist_ok=True)
             created.append(chapters)
+            # create first chapter
+            ch1 = os.path.join(chap_folder, 'Chapter One')
+            os.makedirs(ch1, exist_ok=True)
+            open(os.path.join(ch1, 'chapter.html'), 'a').close()
+            ch_order = load_order(f"{title}/{chapters}")
+            if 'Chapter One' not in ch_order.get('chapters', []):
+                ch_order.setdefault('chapters', []).append('Chapter One')
+                save_order(f"{title}/{chapters}", ch_order)
         for sub in extras:
             sub_name = safe_name(sub)
             if sub_name:

@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.7.5.2 - 2025-07-22 15:30 UTC
+- Book wizard supports author and color and creates "Chapter One"
+
 ## 0.7.5.1 - 2025-07-22 15:15 UTC
 - Added book creation wizard for setting title and common sub-folders
 - Enlarged sidebar version text size
