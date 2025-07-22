@@ -57,7 +57,7 @@
   <li data-name="{{ chapter }}">
     <a href="/folder/{{ folder }}/chapter/{{ chapter }}">{{ chapter }}</a>
     (<a href="{{ url_for('download_chapter_docx', folder=folder, chapter=chapter) }}">Download</a>)
-    <form action="/folder/{{ folder }}/chapter/{{ chapter }}/delete" method="post" style="display:inline" onsubmit="return confirm('Delete chapter \"{{ chapter }}\"?');">
+    <form action="/folder/{{ folder }}/chapter/{{ chapter }}/delete" method="post" style="display:inline" onsubmit="return confirm('Are you sure you want to delete this file? {{ (folder ~ '/' ~ chapter)|replace('/', ' -> ') }}');">
       <button type="submit">Delete</button>
     </form>
     <form action="/folder/{{ folder }}/chapter/{{ chapter }}/close" method="post" style="display:inline">
@@ -82,7 +82,7 @@
 </form>
 {% endif %}
 {% if parent %}
-<form class="delete-folder-form" action="/folder/{{ folder }}/delete" method="post" onsubmit="return confirm('Delete sub-folder \"{{ folder.split('/')[-1] }}\"?');">
+<form class="delete-folder-form" action="/folder/{{ folder }}/delete" method="post" onsubmit="return confirm('Are you sure you want to delete this file? {{ folder|replace('/', ' -> ') }}');">
   <button type="submit">Delete Sub-Folder</button>
 </form>
 {% else %}

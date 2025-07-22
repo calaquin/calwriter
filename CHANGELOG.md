@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.5.3 - 2025-07-22 15:32 UTC
+- Moved author field above chapters field in book wizard
+- Confirm deletion dialog shows full path
+- Version bump to 0.7.5.3
+
 ## 0.7.5.2 - 2025-07-22 15:30 UTC
 - Book wizard supports author and color and creates "Chapter One"
 
