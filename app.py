@@ -21,7 +21,7 @@ app = Flask(__name__)
 app.secret_key = 'change-this'
 
 # Application version
-VERSION = "0.7.4"
+VERSION = "0.7.5"
 app.jinja_env.globals['app_version'] = VERSION
 
 DATA_DIR = os.environ.get('DATA_DIR', os.path.join(os.getcwd(), 'data'))
@@ -1029,6 +1029,23 @@ def help_page():
     """Display a basic help page."""
     folders = list_books()
     return render_template('help.html', folders=folders)
+
+
+@app.route('/download_database')
+def download_database():
+    """Download the entire data directory as a zip file."""
+    from io import BytesIO
+    import zipfile
+
+    mem = BytesIO()
+    with zipfile.ZipFile(mem, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for root, dirs, files in os.walk(DATA_DIR):
+            for fname in files:
+                path = os.path.join(root, fname)
+                rel = os.path.relpath(path, DATA_DIR)
+                zf.write(path, rel)
+    mem.seek(0)
+    return send_file(mem, as_attachment=True, download_name='calwriter_data.zip', mimetype='application/zip')
 
 
 @app.route('/about')

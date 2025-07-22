@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.5 - 2025-07-22 01:10 UTC
+- Added option on the home page to download all data as a zip file
+- Removed About link from the sidebar
+
 ## 0.7.4 - 2025-07-22 00:55 UTC
 - Sidebar icon now links to the home page and is larger
 - Version label displays "CalWriter" followed by the version number

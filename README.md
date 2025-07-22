@@ -2,7 +2,7 @@
 
 <img src="assets/logo.png" alt="CalWriter Logo" width="25%" />
 
-Version 0.7.4
+Version 0.7.5
 
 CalWriter is a simple Flask application for drafting novels.
 
