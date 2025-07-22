@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.5.5 - 2025-07-22 16:00 UTC
+- Home link added to the sidebar next to Settings
+- Independent scrolling for sidebar, main area, and notes sidebar
+- Version bump to 0.7.5.5
+
 ## 0.7.5.4 - 2025-07-22 15:45 UTC
 - Toolbar buttons replaced with icons
 - Deletion confirmation shows file path on a new line
