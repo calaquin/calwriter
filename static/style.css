@@ -8,7 +8,8 @@
 }
 
 body {
-    font-family: Arial, sans-serif;
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    line-height: 1.5;
     display: flex;
     height: 100vh;
     margin: 0;
@@ -29,6 +30,7 @@ body.dark {
     padding: 10px;
     overflow-y: auto;
     height: 100vh;
+    box-shadow: 2px 0 4px rgba(0,0,0,0.1);
 }
 #sidebar .sidebar-title {
     font-weight: bold;
@@ -52,11 +54,17 @@ body.dark {
     display: block;
     margin-bottom: 4px;
     color: var(--text-color);
+    text-decoration: none;
+    padding: 2px 0;
+}
+#sidebar a:hover {
+    text-decoration: underline;
 }
 #main {
     flex: 1;
-    padding: 20px;
+    padding: 40px;
     overflow-y: auto;
+    box-sizing: border-box;
 }
 
 body.chapter-view #main {
@@ -245,6 +253,12 @@ body.chapter-view #chapter_area h1 {
 
 .app-title {
     margin: 0 0 0.5em 0;
+    font-size: 2em;
+}
+.description {
+    margin-top: 0;
+    margin-bottom: 1em;
+    font-size: 1.1em;
 }
 .app-title .version {
     font-size: 0.8em;
@@ -307,6 +321,41 @@ pre.changelog {
 .wizard-link {
     margin-left: 0.5em;
     font-size: 0.9em;
+}
+
+button, input[type="text"], input[type="color"], select, textarea {
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-size: 1em;
+    box-sizing: border-box;
+}
+
+button {
+    background: var(--toolbar-bg);
+    color: var(--text-color);
+    cursor: pointer;
+}
+
+button:hover {
+    background: #eaeaea;
+}
+
+input[type="text"] {
+    max-width: 300px;
+}
+
+.flashes {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 1em 0;
+}
+
+.flashes li {
+    background: #fffae6;
+    border: 1px solid #f0e6c8;
+    padding: 6px 8px;
+    margin-bottom: 4px;
 }
 
 
