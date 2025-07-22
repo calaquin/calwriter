@@ -12,6 +12,7 @@ body {
     line-height: 1.5;
     display: flex;
     height: 100vh;
+    overflow: hidden;
     margin: 0;
     background: var(--bg-color);
     color: var(--text-color);
@@ -32,11 +33,18 @@ body.dark {
     height: 100vh;
     box-shadow: 2px 0 4px rgba(0,0,0,0.1);
 }
+#sidebar .sidebar-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: fit-content;
+    margin: 0 auto 10px;
+}
 #sidebar .sidebar-title {
     font-weight: bold;
-    margin-bottom: 6px;
     display: flex;
     align-items: center;
+    margin-bottom: 4px;
 }
 #sidebar .sidebar-title .version {
     font-size: 1.1em;
@@ -56,6 +64,13 @@ body.dark {
     color: var(--text-color);
     text-decoration: none;
     padding: 2px 0;
+}
+#sidebar .sidebar-links a {
+    display: inline;
+    margin-bottom: 0;
+}
+#sidebar .sidebar-links {
+    margin-bottom: 4px;
 }
 #sidebar a:hover {
     text-decoration: underline;
