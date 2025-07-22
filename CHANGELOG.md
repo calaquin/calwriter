@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.5.1 - 2025-07-22 15:15 UTC
+- Added book creation wizard for setting title and common sub-folders
+- Enlarged sidebar version text size
+
 ## 0.7.5 - 2025-07-22 01:10 UTC
 - Added option on the home page to download all data as a zip file
 - Removed About link from the sidebar

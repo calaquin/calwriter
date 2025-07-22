@@ -21,7 +21,7 @@ app = Flask(__name__)
 app.secret_key = 'change-this'
 
 # Application version
-VERSION = "0.7.5"
+VERSION = "0.7.5.1"
 app.jinja_env.globals['app_version'] = VERSION
 
 DATA_DIR = os.environ.get('DATA_DIR', os.path.join(os.getcwd(), 'data'))
@@ -454,6 +454,46 @@ def create_folder():
         open_books.append(name)
         save_open_books(open_books)
     return redirect(url_for('view_folder', folder=name))
+
+
+@app.route('/wizard/book', methods=['GET', 'POST'])
+def book_wizard():
+    """Simple wizard to create a book with common sub-folders."""
+    if request.method == 'POST':
+        title = safe_name(request.form.get('title', '')).strip()
+        chapters = safe_name(request.form.get('chapters', 'Chapters')).strip()
+        extras = request.form.getlist('extras')
+        if not title:
+            flash('Book title required')
+            return redirect(url_for('book_wizard'))
+        path = os.path.join(DATA_DIR, title)
+        os.makedirs(path, exist_ok=True)
+        created = []
+        if chapters:
+            os.makedirs(os.path.join(path, chapters), exist_ok=True)
+            created.append(chapters)
+        for sub in extras:
+            sub_name = safe_name(sub)
+            if sub_name:
+                os.makedirs(os.path.join(path, sub_name), exist_ok=True)
+                created.append(sub_name)
+        root_order = load_order('')
+        if title not in root_order.get('folders', []):
+            root_order.setdefault('folders', []).append(title)
+            save_order('', root_order)
+        order = load_order(title)
+        for sub in created:
+            if sub not in order.get('folders', []):
+                order.setdefault('folders', []).append(sub)
+        if order.get('folders'):
+            save_order(title, order)
+        open_books = load_open_books()
+        if title not in open_books:
+            open_books.append(title)
+            save_open_books(open_books)
+        return redirect(url_for('view_folder', folder=title))
+    folders = list_books()
+    return render_template('book_wizard.html', folders=folders)
 
 
 @app.route('/folder/<path:folder>/delete', methods=['POST'])
