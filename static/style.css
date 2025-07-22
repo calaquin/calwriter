@@ -382,4 +382,8 @@ input[type="text"] {
     margin-top: 0.5em;
 }
 
+.import-db-form input[type=file] {
+    display: none;
+}
+
 

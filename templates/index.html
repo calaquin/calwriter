@@ -43,9 +43,9 @@
   <form action="{{ url_for('export_db') }}" method="get" class="export-db-form">
     <button type="submit">Export Database</button>
   </form>
-  <form action="{{ url_for('import_db') }}" method="post" enctype="multipart/form-data" class="import-db-form">
-    <input type="file" name="file" accept=".calwdb" required />
-    <button type="submit">Import Database</button>
+  <form action="{{ url_for('import_db') }}" method="post" enctype="multipart/form-data" class="import-db-form" id="import_db_form">
+    <input type="file" name="file" id="db_file" accept=".calwdb" style="display:none" onchange="document.getElementById('import_db_form').submit()" />
+    <button type="button" onclick="document.getElementById('db_file').click()">Import Database</button>
   </form>
 </div>
 {% endblock %}

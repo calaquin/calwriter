@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.1 - 2025-07-22 17:10 UTC
+- Import Database button now opens file selector directly
+- Version bump to 0.8.1
+
 ## 0.8 - 2025-07-22 16:56 UTC
 - Added export and import of .calwdb database files
 
