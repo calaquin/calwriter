@@ -367,4 +367,22 @@ input[type="text"] {
     margin-bottom: 4px;
 }
 
+/* Home page sections */
+.home-links {
+    margin-bottom: 1em;
+}
+
+.home-section {
+    margin-bottom: 2em;
+}
+
+.create-book-form {
+    margin-top: 0.5em;
+}
+
+.db-section form {
+    display: inline-block;
+    margin-right: 0.5em;
+}
+
 
