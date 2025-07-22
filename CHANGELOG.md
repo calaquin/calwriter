@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.2 - 2025-07-22 17:20 UTC
+- Exported database files include a timestamp in the filename
+- Home page link renamed to "Download Database as a .zip"
+- Expanded Help page with a full feature overview
+- Version bump to 0.8.2
+
 ## 0.8.1 - 2025-07-22 17:10 UTC
 - Import Database button now opens file selector directly
 - Version bump to 0.8.1

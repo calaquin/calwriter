@@ -21,7 +21,7 @@ app = Flask(__name__)
 app.secret_key = 'change-this'
 
 # Application version
-VERSION = "0.8.1"
+VERSION = "0.8.2"
 app.jinja_env.globals['app_version'] = VERSION
 
 DATA_DIR = os.environ.get('DATA_DIR', os.path.join(os.getcwd(), 'data'))
@@ -1120,10 +1120,12 @@ def export_db():
         if not os.path.isfile(metadata_path):
             zf.writestr('metadata.json', json.dumps({'version': VERSION}))
     mem.seek(0)
+    timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+    filename = f"calwriter - {timestamp}.calwdb"
     return send_file(
         mem,
         as_attachment=True,
-        download_name='calwriter.calwdb',
+        download_name=filename,
         mimetype='application/x-calwriter-db',
     )
 
