@@ -12,6 +12,7 @@ body {
     line-height: 1.5;
     display: flex;
     height: 100vh;
+    overflow: hidden;
     margin: 0;
     background: var(--bg-color);
     color: var(--text-color);
@@ -56,6 +57,14 @@ body.dark {
     color: var(--text-color);
     text-decoration: none;
     padding: 2px 0;
+}
+#sidebar .sidebar-links a {
+    display: inline;
+    margin-bottom: 0;
+}
+#sidebar .sidebar-links {
+    text-align: center;
+    margin-bottom: 10px;
 }
 #sidebar a:hover {
     text-decoration: underline;
