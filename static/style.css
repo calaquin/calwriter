@@ -5,10 +5,11 @@
     --sidebar-bg: #f0f0f0;
     --toolbar-bg: #ddd;
     --editor-bg: #fff;
+    --accent-color: #4b7bec;
 }
 
 body {
-    font-family: Arial, sans-serif;
+    font-family: 'Inter', Arial, sans-serif;
     display: flex;
     height: 100vh;
     margin: 0;
@@ -23,12 +24,43 @@ body.dark {
     --toolbar-bg: #555;
     --editor-bg: #444;
 }
+
+button,
+input[type="submit"],
+input[type="button"] {
+    background: var(--accent-color);
+    color: #fff;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+input[type="text"],
+input[type="number"],
+input[type="color"],
+textarea,
+select {
+    padding: 4px 6px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: var(--bg-color);
+    color: var(--text-color);
+}
+
+button:hover,
+input[type="submit"]:hover,
+input[type="button"]:hover {
+    filter: brightness(0.9);
+}
 #sidebar {
     width: 250px;
+    min-width: 200px;
     background: var(--sidebar-bg);
     padding: 10px;
     overflow-y: auto;
     height: 100vh;
+    box-shadow: 2px 0 4px rgba(0,0,0,0.1);
 }
 #sidebar .sidebar-title {
     font-weight: bold;
@@ -48,6 +80,10 @@ body.dark {
 #search_form {
     margin-bottom: 10px;
 }
+#search_form input {
+    width: 100%;
+    box-sizing: border-box;
+}
 #sidebar a {
     display: block;
     margin-bottom: 4px;
@@ -57,11 +93,15 @@ body.dark {
     flex: 1;
     padding: 20px;
     overflow-y: auto;
+    max-width: 900px;
+    margin: 0 auto;
 }
 
 body.chapter-view #main {
     padding: 10px;
     overflow: hidden;
+    max-width: none;
+    margin: 0;
 }
 
 body.chapter-view #chapter_area {
@@ -105,16 +145,19 @@ body.chapter-view #chapter_area h1 {
     margin-right: 4px;
     border: 1px solid #ccc;
     border-bottom: none;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
 }
 .chapter-tab.active {
     background: var(--bg-color);
     border-bottom: 1px solid var(--bg-color);
+    color: var(--accent-color);
 }
 .tab-group {
     display: inline-block;
     margin-right: 8px;
     padding: 0 4px;
-    border: 1px solid #bbb;
+    border: 1px solid var(--accent-color);
     border-radius: 4px;
     text-align: center;
     opacity: 0.7;
@@ -127,6 +170,7 @@ body.chapter-view #chapter_area h1 {
     justify-content: center;
     margin-bottom: 0;
     padding: 0 2px;
+    color: var(--accent-color);
 }
 .close-group {
     border: none;
@@ -193,10 +237,11 @@ body.chapter-view #chapter_area h1 {
 }
 .toolbar button {
     font-weight: bold;
-    border: 1px solid #ccc;
-    background: var(--bg-color);
+    border: none;
+    background: var(--accent-color);
     margin-right: 4px;
-    color: var(--text-color);
+    color: #fff;
+    border-radius: 4px;
 }
 
 .icon-btn::before {
@@ -215,6 +260,7 @@ body.chapter-view #chapter_area h1 {
     background: var(--bg-color);
     color: var(--text-color);
     margin-right: 4px;
+    border-radius: 4px;
 }
 .toolbar .gap-right {
     margin-right: 12px;
@@ -239,6 +285,7 @@ body.chapter-view #chapter_area h1 {
 .tree li.collapsed > .item-line > .toggle::before { content: '\25B6'; }
 .tree li.collapsed > ul { display: none; }
 .tree > li > .item-line > a { font-weight: bold; }
+.tree a:hover { color: var(--accent-color); }
 .tree .chapter-item {
     margin-left: 1em;
 }
@@ -307,6 +354,18 @@ pre.changelog {
 .wizard-link {
     margin-left: 0.5em;
     font-size: 0.9em;
+}
+
+/* flash messages */
+.flashes {
+    list-style: none;
+    padding: 10px;
+    margin: 0 0 1em 0;
+    background: var(--sidebar-bg);
+    border-radius: 4px;
+}
+.flashes li {
+    margin: 0;
 }
 
 
