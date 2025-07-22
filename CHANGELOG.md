@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8 - 2025-07-22 16:43 UTC
+- Added export and import of .calwdb database files
+- Version bump to 0.8
+
 ## 0.7.5.5 - 2025-07-22 16:00 UTC
 - Home link added to the sidebar next to Settings
 - Independent scrolling for sidebar, main area, and notes sidebar

@@ -21,7 +21,7 @@ app = Flask(__name__)
 app.secret_key = 'change-this'
 
 # Application version
-VERSION = "0.7.5.5"
+VERSION = "0.8"
 app.jinja_env.globals['app_version'] = VERSION
 
 DATA_DIR = os.environ.get('DATA_DIR', os.path.join(os.getcwd(), 'data'))
@@ -1101,6 +1101,69 @@ def download_database():
                 zf.write(path, rel)
     mem.seek(0)
     return send_file(mem, as_attachment=True, download_name='calwriter_data.zip', mimetype='application/zip')
+
+
+@app.route('/export_db')
+def export_db():
+    """Export the database as a .calwdb archive."""
+    from io import BytesIO
+    import zipfile
+
+    mem = BytesIO()
+    with zipfile.ZipFile(mem, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for root, dirs, files in os.walk(DATA_DIR):
+            for fname in files:
+                path = os.path.join(root, fname)
+                rel = os.path.relpath(path, DATA_DIR)
+                zf.write(path, rel)
+        metadata_path = os.path.join(DATA_DIR, 'metadata.json')
+        if not os.path.isfile(metadata_path):
+            zf.writestr('metadata.json', json.dumps({'version': VERSION}))
+    mem.seek(0)
+    return send_file(
+        mem,
+        as_attachment=True,
+        download_name='calwriter.calwdb',
+        mimetype='application/x-calwriter-db',
+    )
+
+
+@app.route('/import_db', methods=['POST'])
+def import_db():
+    """Import a .calwdb archive into the data directory."""
+    file = request.files.get('file')
+    if not file or not file.filename.endswith('.calwdb'):
+        flash('Invalid file')
+        return redirect(url_for('index'))
+    import zipfile
+    import tempfile
+    import shutil
+
+    try:
+        with zipfile.ZipFile(file) as zf:
+            names = zf.namelist()
+            if 'metadata.json' not in names:
+                flash('Missing metadata.json')
+                return redirect(url_for('index'))
+            for name in names:
+                if name.startswith('/') or '..' in name.split('/'):
+                    flash('Invalid path in archive')
+                    return redirect(url_for('index'))
+            temp_dir = tempfile.mkdtemp()
+            zf.extractall(temp_dir)
+    except zipfile.BadZipFile:
+        flash('File is not a valid archive')
+        return redirect(url_for('index'))
+
+    for root, dirs, files in os.walk(temp_dir):
+        rel = os.path.relpath(root, temp_dir)
+        dest = os.path.join(DATA_DIR, rel) if rel != '.' else DATA_DIR
+        os.makedirs(dest, exist_ok=True)
+        for fname in files:
+            shutil.move(os.path.join(root, fname), os.path.join(dest, fname))
+    shutil.rmtree(temp_dir, ignore_errors=True)
+    flash('Database imported')
+    return redirect(url_for('index'))
 
 
 @app.route('/about')
