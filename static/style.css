@@ -1,4 +1,4 @@
-#:root defines customizable colors which can be toggled via settings
+/* Customizable colors toggled via settings */
 :root {
     --bg-color: #fff;
     --text-color: #000;
@@ -7,8 +7,28 @@
     --editor-bg: #fff;
 }
 
+/* Base layout tweaks */
+* {
+    box-sizing: border-box;
+}
+
+a {
+    color: var(--text-color);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+h1, h2, h3 {
+    margin-top: 0;
+    color: var(--text-color);
+}
+
 body {
-    font-family: Arial, sans-serif;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.5;
     display: flex;
     height: 100vh;
     margin: 0;
@@ -29,6 +49,7 @@ body.dark {
     padding: 10px;
     overflow-y: auto;
     height: 100vh;
+    box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
 }
 #sidebar .sidebar-title {
     font-weight: bold;
@@ -52,6 +73,31 @@ body.dark {
     display: block;
     margin-bottom: 4px;
     color: var(--text-color);
+}
+
+/* Form element styling */
+button,
+input[type="text"],
+input[type="search"],
+input[type="color"],
+select,
+textarea {
+    font-family: inherit;
+    font-size: 1rem;
+    padding: 4px 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: var(--bg-color);
+    color: var(--text-color);
+}
+
+button {
+    background: var(--toolbar-bg);
+    cursor: pointer;
+}
+
+button:hover {
+    background: #bbb;
 }
 #main {
     flex: 1;
@@ -105,6 +151,7 @@ body.chapter-view #chapter_area h1 {
     margin-right: 4px;
     border: 1px solid #ccc;
     border-bottom: none;
+    border-radius: 4px 4px 0 0;
 }
 .chapter-tab.active {
     background: var(--bg-color);
@@ -154,6 +201,7 @@ body.chapter-view #chapter_area h1 {
     color: var(--text-color);
     min-width: 150px;
     max-width: 50%;
+    box-shadow: -2px 0 4px rgba(0, 0, 0, 0.1);
 }
 #notes_resizer {
     width: 6px;
@@ -274,6 +322,7 @@ body.chapter-view #chapter_area h1 {
     border: 1px solid #ccc;
     padding: 4px 6px;
     margin-bottom: 4px;
+    border-radius: 4px;
 }
 
 .delete-folder-form {
