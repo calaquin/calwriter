@@ -2,6 +2,7 @@ import os
 import click
 from flask import Flask, request, jsonify, send_from_directory
 from werkzeug.security import generate_password_hash
+from werkzeug.utils import safe_join
 from flask_login import LoginManager, current_user
 
 from extensions import db, csrf
@@ -156,8 +157,8 @@ def require_login():
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_frontend(path):
-    full_path = os.path.join(FRONTEND_DIST, path)
-    if path and os.path.isfile(full_path):
+    full_path = safe_join(FRONTEND_DIST, path) if path else None
+    if full_path and os.path.isfile(full_path):
         return send_from_directory(FRONTEND_DIST, path)
     return send_from_directory(FRONTEND_DIST, 'index.html')
 
