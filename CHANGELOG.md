@@ -1,5 +1,152 @@
 # Changelog
 
+## 0.13.0 - 2026-08-21 22:37 UTC
+- Admins can now invite new users without CLI access: Settings has an "Invite a user" page that generates a one-time signup link, which walks the invitee through choosing their own username and password
+
+## 0.12.8 - 2026-08-21 22:27 UTC
+- Settings now shows an Account panel with your username and account type (Admin/Standard)
+
+## 0.12.7 - 2026-08-21 22:08 UTC
+- Redesigned the Book Settings page to match the rest of the app's styling instead of a bare unstyled form
+
+## 0.12.6 - 2026-08-21 22:06 UTC
+- Reordered the sidebar "⋯" menu to Rename, Settings, Download, then Close/Open (separated by a divider)
+
+## 0.12.5 - 2026-08-21 22:04 UTC
+- The sidebar "⋯" menu for books, sub-folders, and chapters now has a Settings link
+
+## 0.12.4 - 2026-08-21 21:59 UTC
+- Version history now includes a "Current" entry at the top showing exactly what's in the editor right now, so a change you just made (like an indent) is visible even before it's old enough to have been checkpointed
+- Book titles in the sidebar are now colored to match each book's color, matching the color dots used elsewhere in the app
+
+## 0.12.3 - 2026-08-21 21:44 UTC
+- Sidebar rows now get a subtle background and border on hover, and each row's "⋯" menu button stays hidden until you hover over it (or while its menu is open)
+
+## 0.12.2 - 2026-08-21 21:39 UTC
+- Closing a book from the sidebar now also closes any of its chapters you had open as tabs
+- Added a "⋯" menu to every book, sub-folder, and chapter in the sidebar with Close/Open, Rename, and Download as .docx/.rtf/.txt/.md; closing a chapter this way also closes its editor tab
+- Sub-folder and book downloads now include chapters from nested sub-folders, not just direct children
+
+## 0.12.1 - 2026-08-21 21:18 UTC
+- Fixed first-line indent (and text alignment) silently disappearing after leaving and returning to a chapter -- the HTML sanitizer was dropping the entire `style` attribute on every save because it needs an explicit CSS allowlist, which it didn't have
+
+## 0.12.0 - 2026-08-21 21:10 UTC
+- Added chapter version history: checkpoints are captured automatically as you edit, browsable and restorable from a new "History" button on the chapter page
+- Added conflict protection: saving a chapter now detects if it changed elsewhere first and lets you reload the latest version or keep yours, instead of silently overwriting someone else's edit; chapters also show who else currently has them open
+- Reworked the app for narrow/mobile screens: the sidebar and notes panel now default to collapsed and open as overlays instead of squeezing the page, and a header button that had become entirely inaccessible below 900px width is fixed
+- Added a keyboard shortcuts reference (Ctrl/Cmd+/, or the "?" button in the chapter toolbar)
+
+## 0.11.22 - 2026-08-21 20:33 UTC
+- Pressing Backspace at the start of an indented line now removes the indent first, instead of immediately deleting into the line above
+
+## 0.11.21 - 2026-08-21 20:29 UTC
+- Chapters can now have a description, editable from the chapter's Settings modal
+- Sub-folders can now have a description too, editable from a new Settings button on the sub-folder page
+- Book, sub-folder, and chapter descriptions all now show in the Sub-folders and Chapters tables
+- Fixed a broken migration history (an orphaned duplicate initial-schema file) that made `alembic upgrade head` fail with "multiple head revisions"
+
+## 0.11.20 - 2026-08-21 20:14 UTC
+- Replaced the Rename, Export .docx, and Delete buttons on a chapter page with a single "Settings" button that opens a modal containing all three
+- Paragraphs in the chapter editor no longer get an automatic first-line indent; use Tab (or the toolbar's indent button) to indent a line yourself
+
+## 0.11.19 - 2026-08-21 20:06 UTC
+- Chapter tabs now show a dot in their book's color, so tabs from different books are easy to tell apart at a glance
+- Tab (and Shift+Tab) in the chapter editor now indent/outdent cumulatively instead of only toggling a single fixed indent level
+
+## 0.11.18 - 2026-08-21 19:59 UTC
+- Brought back chapter tabs: opening a chapter adds it to a tab strip at the top of the page, so you can keep several chapters open and switch between them without losing your place; closing the active tab moves you to the next open one
+- Added a small collapse button to the sidebar's own top-right corner, alongside the existing "Hide sidebar" toolbar button
+
+## 0.11.17 - 2026-08-21 19:51 UTC
+- The collapsed Notes panel now matches the sidebar's collapse style: a slim, full-height strip instead of a small boxed button
+
+## 0.11.16 - 2026-08-21 19:40 UTC
+- Added a "Hide sidebar" button next to the chapter editor's width toggle; the sidebar collapses to a slim strip you can click to bring it back from any page, and the choice is remembered
+
+## 0.11.15 - 2026-08-21 19:34 UTC
+- Chapters in the sidebar can now be dragged to reorder them within a folder, or dropped onto another book, sub-folder, or book root to move them there
+
+## 0.11.14 - 2026-08-21 19:12 UTC
+- Fixed the Settings page crashing when a newly updated frontend temporarily received older settings data without the custom dark-palette fields
+- Added safe dark-palette fallbacks during rolling updates and mixed frontend/backend versions
+
+## 0.11.13 - 2026-08-21 19:08 UTC
+- Added separate customizable light and dark color palettes, including dark-mode colors for the sidebar, text, background, toolbar, and editor
+- The Settings mode switch now previews and edits either palette without losing changes made to the other
+- Saving appearance now stores both palettes and the active light/dark mode for the user
+
+## 0.11.12 - 2026-08-21 19:02 UTC
+- Appearance changes now preview immediately on the Settings page without affecting the rest of the app until saved
+- Added a live workspace preview showing sidebar, toolbar, background, text, and editor colors
+- Unsaved appearance changes now prompt you to apply them, discard them, or stay on the page when navigating away
+
+## 0.11.11 - 2026-08-21 18:56 UTC
+- Refreshed the Settings page with organized appearance and password panels, clearer color controls, a proper dark-mode switch, and improved save feedback
+
+## 0.11.10 - 2026-08-21 18:52 UTC
+- Added left, center, and right paragraph alignment controls to the chapter editor
+- Added a special-character picker for inserting common typographic marks, symbols, currency signs, and accented characters
+
+## 0.11.9 - 2026-08-21 18:47 UTC
+- Refreshed the home page with a clearer workspace header, a more useful book library, improved open/closed status, faster book creation, and tidier backup tools
+
+## 0.11.8 - 2026-08-21 18:42 UTC
+- Refined the chapter workspace with a compact header, centered page view, full-width option, cleaner notes panel, word count, and visible autosave status
+- Chapter formatting now includes first-line indent and unindent controls, bulleted and numbered lists, and matching Tab/Shift+Tab shortcuts
+- Sub-folders and chapters can once again be closed to hide them from the sidebar and reopened later; choices are saved per user
+- Refreshed book and sub-folder pages with clearer actions, organized content sections, improved list rows, and tidier creation and sharing controls
+
+## 0.11.7 - 2026-08-21 18:20 UTC
+- The Notes panel on a chapter page can now be collapsed to a slim strip and reopened with one click; your choice is remembered across chapters and reloads
+
+## 0.11.6 - 2026-08-21 18:13 UTC
+- Added a Book Settings page (owners and editors) for editing a book's title, author, description, and color, replacing the old rename-only prompt
+
+## 0.11.5 - 2026-08-21 18:07 UTC
+- Fixed Ctrl/Cmd+B, +I, and +U in the chapter editor being swallowed by Firefox's own bookmarks-sidebar and view-source shortcuts instead of applying bold/italic/underline
+
+## 0.11.4 - 2026-08-21 18:02 UTC
+- Tab now indents the current line in the chapter editor (Shift+Tab to outdent), instead of jumping focus out of the editor
+- Confirmed Ctrl/Cmd+B, +I, +U, +Z (undo), and +Shift+Z (redo) work while editing a chapter
+
+## 0.11.3 - 2026-08-21 17:40 UTC
+- Brought back closing and reopening books: the sidebar only shows open books, and the home page's book list lets you close a book (hide it from the sidebar) or reopen one later
+
+## 0.11.2 - 2026-08-21 17:35 UTC
+- Settings page now lets you change your password
+- Cleaned up the sidebar layout: account info and nav links are grouped into a clearer header instead of loose, centered rows
+
+## 0.11.1 - 2026-08-21 17:23 UTC
+- Sidebar shows the app version below the title again, linking to this changelog page
+
+## 0.11.0 - 2026-08-21 17:12 UTC
+- Brand new interface: the app is now a single-page app that never reloads the whole page as you navigate
+- Removed the old page-based interface and its "download notes as .txt" and changelog-page links — not carried over to the new interface yet
+- Deploying now requires Docker Compose (a Postgres database runs alongside the app) instead of a single container
+
+## 0.10.1 - 2026-08-21 15:10 UTC
+- Added a JSON API (`/api/*`) alongside the existing pages, laying the groundwork for a future app redesign — doesn't change how the current pages work
+- Fixed a bug (introduced last release) that could silently sign you back out after logging in when the app isn't served over https
+
+## 0.10.0 - 2026-08-21 14:52 UTC
+- All books, chapters, and notes now live in the database instead of on disk
+- Books can be shared with other users as an editor (can edit) or a viewer (read-only); admins grant access from the command line (`flask share-book`)
+- Sidebar order, dark mode, and colors are now personal per-user preferences instead of shared app-wide settings
+- .docx files are generated on download instead of being rebuilt on every autosave
+- Fixed search results linking to a broken page
+- Fixed the book/sub-folder settings page mislabeling "Delete Book" on sub-folders
+
+## 0.9.0 - 2026-08-21 14:38 UTC
+- Added a Postgres-backed database alongside the existing file storage (unused for now, content still saves to disk)
+- Replaced the single shared login password with real per-user accounts; the sidebar now shows who's logged in
+- Accounts are created by an admin from the command line (`flask create-user`) — no public signup
+
+## 0.8.3 - 2026-08-19 21:01 UTC
+- Added login screen; the app now requires a password
+- Fixed a security bug that could let a crafted request read or delete files outside the data folder
+- Added CSRF protection to all forms and saves
+- Docker image now runs as a non-root user and serves with gunicorn instead of the dev server
+
 ## 0.8.2 - 2025-07-22 17:20 UTC
 - Exported database files include a timestamp in the filename
 - Home page link renamed to "Download Database as a .zip"

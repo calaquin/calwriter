@@ -2,62 +2,74 @@
 
 <img src="assets/logo.png" alt="CalWriter Logo" width="25%" />
 
-Version 0.8.2
-
-CalWriter is a simple Flask application for drafting novels.
+CalWriter is a multi-user novel-writing app: organize books into chapters and
+sub-folders, write in a rich-text editor that autosaves, and share a book
+with other people as an editor or a read-only viewer.
 
 **Features**
 
 - Organize books with nested sub-folders and chapters
-- Notes and chapters save automatically
-- Chapters export to `.docx` format
-- Drag and drop to reorder items
-- Close books to hide them from the sidebar
-- Close sub-folders and chapters like books
-- Word counter and daily statistics
+- Chapters and notes save automatically as you type
+- Export chapters (or a whole book) to `.docx`
+- Drag and drop to reorder books, sub-folders, and chapters
+- Share a book with other users as an editor (can edit) or viewer (read-only)
+- Search across everything you have access to
+- Word-count stats per book
 - Customizable colors and dark mode
-
-- Rich text toolbar with font options including indent, outdent, horizontal lines
-- Find and replace tool in the chapter editor
-- Editor background color can be customized
-- Books can specify a color for their tab groups
-- Optional pre-edit mode for inserting icon tags with a click
-- Export and import your database as `.calwdb` files
-
-## Running with Docker
-
-Pull the prebuilt image and run it:
-
-```bash
-docker pull ghcr.io/calaquin/calwriter:latest
-docker run -d --name calwriter \
-  -p 5000:5000 \
-  -v $(pwd)/data:/app/data \
-  ghcr.io/calaquin/calwriter:latest
-```
-
-Visit `http://localhost:5000` to start writing. All data is stored in the
-`data` folder you mounted so it persists across upgrades.
-
-The home page includes a link to a simple help screen if you need a reminder of
-the features.
+- Export/import your books as `.calwdb` archives
 
 ## Running with Docker Compose
 
-Using Docker Compose is even easier. Create a file like this:
+CalWriter needs a Postgres database alongside the app itself, so it's run via
+Docker Compose rather than a single container image.
 
-```yaml
-version: "3"
-services:
-  calwriter:
-    image: ghcr.io/calaquin/calwriter:latest
-    ports:
-      - "5000:5000"
-    volumes:
-      - ./data:/app/data
+```bash
+git clone https://github.com/calaquin/calwriter.git
+cd calwriter
+cp .env.example .env
+# edit .env: set SECRET_KEY and POSTGRES_PASSWORD (see the comments in the file
+# for how to generate each)
+docker compose up -d --build
 ```
 
-Run `docker compose up` and open `http://localhost:5000` in your browser.
+Then create your first login (there's no public signup — accounts are
+admin-created):
+
+```bash
+docker compose exec app flask create-user <username> --admin
+```
+
+Visit `http://localhost:5000` and log in.
+
+### Sharing a book with another user
+
+```bash
+docker compose exec app flask create-user <their-username>
+docker compose exec app flask list-books                       # find the book's id
+docker compose exec app flask share-book <book-id> <their-username> editor
+```
+
+Use `viewer` instead of `editor` for read-only access. `flask unshare-book <book-id> <username>` revokes it.
+
+### Other admin commands
+
+`flask list-users`, `flask reset-password <username>`.
+
+## Development
+
+The backend is Flask + SQLAlchemy + Alembic (`app.py`, `api.py`,
+`services.py`, `models.py`, `permissions.py`), serving a React + TypeScript
+frontend (`frontend/`) built with Vite. For local frontend development with
+hot reload, run the backend via Docker Compose as above, then:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+This starts a dev server on `:5173` that proxies `/api` calls to the Flask
+backend on `:5000`.
 
 ## License
 
