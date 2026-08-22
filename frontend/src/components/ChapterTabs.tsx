@@ -19,7 +19,11 @@ export default function ChapterTabs() {
     if (tab.chapterId !== activeId) return
     const remaining = tabs.filter((t) => t.chapterId !== tab.chapterId)
     const next = remaining[index] ?? remaining[index - 1]
-    navigate(next ? `/chapters/${next.chapterId}` : `/folders/${tab.folderId}`)
+    if (next) {
+      navigate(`/chapters/${next.chapterId}`)
+    } else {
+      navigate(tab.folderAccessible ? `/folders/${tab.folderId}` : '/')
+    }
   }
 
   return (

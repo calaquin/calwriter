@@ -5,6 +5,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Computed,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
@@ -80,8 +81,12 @@ class Folder(db.Model):
     chapters = relationship(
         "Chapter", foreign_keys="Chapter.folder_id", back_populates="folder", passive_deletes=True
     )
-    collaborators = relationship(
-        "BookCollaborator", back_populates="book", cascade="all, delete-orphan", passive_deletes=True
+    shares = relationship(
+        "ResourceShare",
+        foreign_keys="ResourceShare.folder_id",
+        back_populates="folder",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
     @property
@@ -113,6 +118,11 @@ class Chapter(db.Model):
     updated_at: Mapped["DateTime"] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    # Manually toggled in Chapter Settings (not inferred from content) -- a
+    # timestamp rather than a bare flag so a chapter-count goal can check
+    # "completed within this goal's current period", not just "is complete
+    # right now". Cleared back to NULL if the user toggles it back off.
+    completed_at: Mapped["DateTime | None"] = mapped_column(DateTime(timezone=True))
     search_tsv: Mapped[str] = mapped_column(
         TSVECTOR,
         Computed(
@@ -165,24 +175,42 @@ class ChapterPresence(db.Model):
     user = relationship("User")
 
 
-class BookRole(str, enum.Enum):
+class ShareRole(str, enum.Enum):
     editor = "editor"
     viewer = "viewer"
 
 
-class BookCollaborator(db.Model):
-    __tablename__ = "book_collaborators"
-    __table_args__ = (UniqueConstraint("book_id", "user_id", name="uq_book_collaborators_book_user"),)
+class ResourceShare(db.Model):
+    """Grants a user access to either one folder (book root or sub-folder --
+    the grant covers that folder and everything nested under it) or one
+    chapter. Sharing a whole book is just a share on its root folder row;
+    there's no separate book-sharing mechanism."""
+
+    __tablename__ = "resource_shares"
+    __table_args__ = (
+        CheckConstraint(
+            "(folder_id IS NOT NULL)::int + (chapter_id IS NOT NULL)::int = 1",
+            name="chk_resource_shares_one_target",
+        ),
+        UniqueConstraint("folder_id", "user_id", name="uq_resource_shares_folder_user"),
+        UniqueConstraint("chapter_id", "user_id", name="uq_resource_shares_chapter_user"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    book_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("folders.id", ondelete="CASCADE"), nullable=False)
+    folder_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("folders.id", ondelete="CASCADE"), index=True
+    )
+    chapter_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("chapters.id", ondelete="CASCADE"), index=True
+    )
     user_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    role: Mapped[BookRole] = mapped_column(Enum(BookRole, name="book_role"), nullable=False)
+    role: Mapped[ShareRole] = mapped_column(Enum(ShareRole, name="share_role"), nullable=False)
     created_at: Mapped["DateTime"] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    book = relationship("Folder", foreign_keys=[book_id], back_populates="collaborators")
+    folder = relationship("Folder", foreign_keys=[folder_id], back_populates="shares")
+    chapter = relationship("Chapter", foreign_keys=[chapter_id])
     user = relationship("User", foreign_keys=[user_id])
 
 
@@ -232,5 +260,95 @@ class UserSettings(db.Model):
     # different users see different accessible book sets, so one collaborator
     # dragging a book in their sidebar must not reorder another collaborator's view.
     book_order: Mapped[list[int]] = mapped_column(ARRAY(BigInteger), nullable=False, default=list)
+    hidden_goal_ids: Mapped[list[int]] = mapped_column(ARRAY(BigInteger), nullable=False, default=list)
+    goal_order: Mapped[list[int]] = mapped_column(ARRAY(BigInteger), nullable=False, default=list)
 
     user = relationship("User")
+
+
+class GoalType(str, enum.Enum):
+    words = "words"
+    chapters = "chapters"
+
+
+class GoalCadence(str, enum.Enum):
+    daily = "daily"
+    weekly = "weekly"
+    monthly = "monthly"
+
+
+class Goal(db.Model):
+    """A personal writing target, scoped to one folder (book or sub-folder)
+    or one chapter. Always private to the user who set it -- even on a
+    shared resource, each collaborator tracks their own goal against that
+    resource's overall word/chapter count (there's no per-author
+    attribution in this app). A `chapters`-type goal only ever targets a
+    folder (chapter_id must be NULL); `words`-type goals can target either.
+
+    `cadence` doubles as the timeframe-type flag: set -> a recurring goal
+    whose period re-anchors every daily/weekly/monthly boundary; NULL -> a
+    one-time goal running from start_date to end_date. See
+    services.advance_goal_period for how period_start/baseline_word_count
+    are lazily rolled forward and (re)captured on read."""
+
+    __tablename__ = "goals"
+    __table_args__ = (
+        CheckConstraint(
+            "(folder_id IS NOT NULL)::int + (chapter_id IS NOT NULL)::int = 1",
+            name="chk_goals_one_target",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    folder_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("folders.id", ondelete="CASCADE"), index=True)
+    chapter_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("chapters.id", ondelete="CASCADE"), index=True)
+    # Optional user-chosen label, e.g. "First draft push". Empty string (not
+    # NULL, matching Folder/Chapter.description) means none was given, in
+    # which case the UI falls back to a generated description like "500
+    # words / week".
+    name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    goal_type: Mapped[GoalType] = mapped_column(Enum(GoalType, name="goal_type"), nullable=False)
+    target: Mapped[int] = mapped_column(Integer, nullable=False)
+    cadence: Mapped[GoalCadence | None] = mapped_column(Enum(GoalCadence, name="goal_cadence"))
+    start_date: Mapped["Date"] = mapped_column(Date, nullable=False)
+    end_date: Mapped["Date | None"] = mapped_column(Date)
+    # Current period's start, re-anchored on each rollover for a recurring
+    # goal; fixed at start_date for a one-time goal.
+    period_start: Mapped["Date"] = mapped_column(Date, nullable=False)
+    # Word count of the resource at period_start, captured lazily the first
+    # time the goal is read on/after that date -- NULL until then. Only used
+    # for goal_type == 'words'; progress is current_total - baseline.
+    baseline_word_count: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped["DateTime"] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", foreign_keys=[user_id])
+    folder = relationship("Folder", foreign_keys=[folder_id])
+    chapter = relationship("Chapter", foreign_keys=[chapter_id])
+
+
+class GoalPeriodHistory(db.Model):
+    """A snapshot of one completed period of a *recurring* goal, recorded
+    the moment services.advance_goal_period() rolls past it. Goal itself
+    only ever tracks its current period's progress (see its baseline_word_count
+    comment) -- this is what lets a past day/week/month be shown after the
+    fact. Fixed-range goals never get rows here (they have exactly one
+    period, which is just the goal itself). Necessarily starts empty for
+    every existing goal and only accumulates going forward -- there's no
+    way to reconstruct periods that elapsed before this table existed."""
+
+    __tablename__ = "goal_period_history"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    goal_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("goals.id", ondelete="CASCADE"), nullable=False, index=True)
+    period_start: Mapped["Date"] = mapped_column(Date, nullable=False)
+    period_end: Mapped["Date"] = mapped_column(Date, nullable=False)
+    # Snapshot target/goal_type at the time, in case the goal's own target
+    # is edited later -- history should reflect what was actually being
+    # aimed for in that period, not today's target.
+    target: Mapped[int] = mapped_column(Integer, nullable=False)
+    current: Mapped[int] = mapped_column(Integer, nullable=False)
+    achieved: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    created_at: Mapped["DateTime"] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    goal = relationship("Goal")

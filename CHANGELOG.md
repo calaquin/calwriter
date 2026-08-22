@@ -1,5 +1,73 @@
 # Changelog
 
+## 0.17.1 - 2026-08-22 21:00 UTC
+- Goal cards: a book's own name now uses that book's color (matching the sidebar) instead of the generic link color, and a goal on a sub-folder or chapter now shows the full Book › Sub-folder breadcrumb above its name so it's clear which book it belongs to at a glance
+
+## 0.17.0 - 2026-08-22 20:45 UTC
+- Fixed a real gap: creating a goal from the main "New goal" button (not via a sidebar/page "Goals" link) could only target a whole book. It now has a "Scope within book" picker listing every sub-folder and chapter too, so goals can be set on any of them as originally intended
+- Recurring goals now have a "History" link showing every completed period (day/week/month) as a bar chart and a list, each marked Achieved or Missed. History accumulates going forward from now -- there's no way to reconstruct periods that already elapsed before this shipped
+
+## 0.16.2 - 2026-08-22 20:20 UTC
+- The Goals page no longer pops open the New Goal modal when you arrive via a book/sub-folder/chapter's "Goals" link -- it just pre-fills that resource for whenever you click "New goal" yourself
+- Recurring goals can now be given an optional end date (when creating or editing) -- past that date the goal stops repeating and freezes at its last period instead of continuing forever; clear the date to make it open-ended again
+
+## 0.16.1 - 2026-08-22 20:05 UTC
+- Goals can now be hidden (collapsed into a "Hidden goals" section, not deleted) and drag-reordered on the Goals page
+- Each in-progress goal now shows a pace breakdown: an On track/Behind pace badge, words-(or chapters-)per-day so far, per-day still needed to hit the target, and days left in the current period
+- Fixed a CSS bug where hovering the Sharing section's collapse toggle (in Sub-folder/Chapter Settings) briefly flashed a generic gray button background
+
+## 0.16.0 - 2026-08-22 19:45 UTC
+- Goals can now be edited after creation (target, start date, and -- for a fixed-range goal -- end date), via a new "Edit" button on each goal card
+- Goals can optionally be given a name (e.g. "First draft push"), shown on the goal card in place of the generated description; set it when creating a goal or add/change it later via Edit
+
+## 0.15.4 - 2026-08-22 19:20 UTC
+- Sub-folder and chapter Settings: the Sharing section is now collapsed by default behind a "Sharing (N)" toggle, and Export now offers all four formats (.docx, .rtf, .txt, .md) instead of just .docx for sub-folders, or just .docx for chapters
+
+## 0.15.3 - 2026-08-22 19:05 UTC
+- "Open all" (in a book/sub-folder's page header menu and its sidebar "⋯" menu) is now hidden unless something inside it is actually hidden from the sidebar -- no more offering an action with nothing to do
+
+## 0.15.2 - 2026-08-22 18:50 UTC
+- Book and sub-folder pages: the row of header buttons (Settings, Stats, Goals, Export, Open all, Delete) is now a single "⋯" menu, and its Download option offers all four formats (.docx, .rtf, .txt, .md) instead of just .docx
+- The Stats page now shows the book, sub-folder, or chapter's name (and its type) in the header instead of just "Stats"
+
+## 0.15.1 - 2026-08-22 18:35 UTC
+- Book and sub-folder pages now have a "Goals" link in the header, next to Stats
+- Cleaned up the New Goal modal: goal type and timeframe are now pill toggles instead of radio buttons, inputs match the rest of the app's forms, and there's a proper Cancel button alongside Create goal
+
+## 0.15.0 - 2026-08-22 18:10 UTC
+- Added a Goals system: set a personal word-count target (per book, sub-folder, or chapter) or a chapter-completion target (per book or sub-folder), on either a recurring cadence (daily/weekly/monthly, auto-resetting) or a fixed date range. New "Goals" page (linked from the Books page and the sidebar "⋯" menus) lists all your goals with a progress bar; goals are private to you even on a shared book
+- Chapters now have a manual "Complete" toggle in Chapter Settings, used to track chapter-completion goals
+
+## 0.14.3 - 2026-08-22 17:40 UTC
+- Added a workspace-wide Stats page (new "Stats" button on the Books/workspace page) showing total words and words-per-day aggregated across every book you have access to, using the same view as the per-book and per-chapter stats pages
+
+## 0.14.2 - 2026-08-22 17:33 UTC
+- The sidebar "⋯" menu for books, sub-folders, and chapters now has a Stats link
+
+## 0.14.1 - 2026-08-22 17:31 UTC
+- Redesigned the Stats page to match the rest of the app -- a proper "Total words" tile, a "Show" dropdown (7/14/30/90 days or all time) instead of a raw number input, and a styled bar chart instead of inline-styled divs
+- Stats no longer show a day with 0 words unless it's today (a day with no bar just means nothing was last-edited then, not that 0 words were written). If it's been more than a week since the last day with real activity, today's empty bar is dropped too rather than showing a lone point stranded past the gap
+
+## 0.14.0 - 2026-08-22 17:21 UTC
+- Lists can now be nested: press Tab inside a list item to nest it under the one above (Shift+Tab to un-nest), with the marker style cycling every level -- 1/2/3, then a/b/c, then i/ii/iii for numbered lists; disc, circle, square for bulleted -- matching what you get in the .docx/.rtf/.txt/.md downloads
+- Added checklists: a new toolbar button, or type "[] " (or "[x] " for pre-checked) at the start of a line; click a checkbox to toggle it. A checklist item can sit alongside plain bullet/numbered items in the same list
+- Typing markdown syntax at the start of a line now auto-formats it: "- " or "* " for a bulleted list, "1. " for numbered, "[] "/"[x] " for a checklist item
+- Fixed a bug where exporting a chapter or book with a list to .docx or .rtf produced no bullets or numbers at all -- every item ran together in one paragraph with no line breaks. Both formats (plus .txt, which never showed list markers either) now render nested lists and checklists correctly
+
+## 0.13.6 - 2026-08-22 16:50 UTC
+- Stats are no longer book-only: sub-folders now get the same words-per-day view as books, and chapters get their own Stats page charting that chapter's word count over time from its version history
+
+## 0.13.5 - 2026-08-22 16:23 UTC
+- Sub-folders and chapters can now be shared directly with other users, not just whole books; a sub-folder share covers everything nested under it. Items shared with you (that aren't part of a book you already have full access to) show up under a new "Shared with me" section in the sidebar
+- Sharing moved out of a separate "Share" button and into Book/Sub-folder/Chapter Settings, where you can also change an existing collaborator's role between Viewer and Editor without removing and re-adding them
+- Anyone a sub-folder or chapter was shared with can now leave it themselves (from its Settings, or a "Leave" option in the sidebar), without needing the owner to remove them
+- Added an "Open all" action (sidebar "⋯" menu, and a header button on Book/Sub-folder pages) that un-hides every sub-folder and chapter nested underneath, instead of opening them one at a time
+- The sub-folder Settings modal now includes a Delete option, and both it and the create-sub-folder/create-chapter forms support a description, matching chapters
+- Creating a sub-folder or chapter (from the sidebar "⋯" menu or a Book/Sub-folder page) now opens the same modal everywhere, instead of a plain browser prompt
+- The Home page's "Create book" is now a single "New book" button that opens the guided wizard in a modal, with a redesigned wizard UI (including toggleable chips for additional sub-folders) instead of a bare unstyled form
+- Replaced every remaining browser pop-up (delete/leave confirmations, rename prompts) with in-app modals matching the rest of the UI
+- Fixed viewers being shown Settings/Delete/Add buttons they didn't have permission to use, and dead "back" links pointing at a parent folder they couldn't access
+
 ## 0.13.0 - 2026-08-21 22:37 UTC
 - Admins can now invite new users without CLI access: Settings has an "Invite a user" page that generates a one-time signup link, which walks the invitee through choosing their own username and password
 

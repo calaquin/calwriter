@@ -71,6 +71,14 @@ npm run dev
 This starts a dev server on `:5173` that proxies `/api` calls to the Flask
 backend on `:5000`.
 
+### Browsing the database
+
+`docker compose up -d` also starts an [Adminer](https://www.adminer.org/)
+instance at `http://localhost:8080`, pre-authenticated to the `calwriter`
+Postgres database -- no login screen. Dev-only (see
+`docker-compose.override.yml` and `docker/adminer-index.php`); never enable
+this against a real database.
+
 ## License
 
 CalWriter is released under the [MIT License](LICENSE).

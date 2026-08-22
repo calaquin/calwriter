@@ -6,7 +6,7 @@ from werkzeug.utils import safe_join
 from flask_login import LoginManager, current_user
 
 from extensions import db, csrf
-from models import User, UserSettings, Folder, BookCollaborator, BookRole
+from models import User, UserSettings, Folder, ResourceShare, ShareRole
 from api import api_bp
 
 app = Flask(__name__)
@@ -101,11 +101,11 @@ def share_book_cli(book_id, username, role):
     if book.owner_id == user.id:
         click.echo(f'{username} already owns this book.')
         return
-    collab = BookCollaborator.query.filter_by(book_id=book_id, user_id=user.id).first()
-    if collab:
-        collab.role = BookRole(role)
+    share = ResourceShare.query.filter_by(folder_id=book_id, user_id=user.id).first()
+    if share:
+        share.role = ShareRole(role)
     else:
-        db.session.add(BookCollaborator(book_id=book_id, user_id=user.id, role=BookRole(role)))
+        db.session.add(ResourceShare(folder_id=book_id, user_id=user.id, role=ShareRole(role)))
     db.session.commit()
     click.echo(f'Shared "{book.name}" with {username} as {role}.')
 
@@ -119,11 +119,11 @@ def unshare_book_cli(book_id, username):
     if not user:
         click.echo(f'No user "{username}".')
         return
-    collab = BookCollaborator.query.filter_by(book_id=book_id, user_id=user.id).first()
-    if not collab:
+    share = ResourceShare.query.filter_by(folder_id=book_id, user_id=user.id).first()
+    if not share:
         click.echo(f'{username} does not have direct access to book {book_id}.')
         return
-    db.session.delete(collab)
+    db.session.delete(share)
     db.session.commit()
     click.echo(f'Revoked {username}\'s access to book {book_id}.')
 

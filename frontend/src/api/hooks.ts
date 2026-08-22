@@ -10,11 +10,21 @@ import type {
   ChapterVersionDetail,
   PresenceUser,
   UserSettings,
-  Collaborator,
+  Share,
+  SharedItem,
   SearchResult,
-  BookStats,
+  Stats,
   Invite,
+  Goal,
+  GoalType,
+  GoalCadence,
+  GoalResourceType,
+  FolderTreeIds,
+  FolderTreeEntry,
+  GoalHistory,
 } from './types'
+
+type ShareResourceType = 'folder' | 'chapter'
 
 export function useBooks() {
   return useQuery({ queryKey: ['books'], queryFn: () => api.get<Book[]>('/books') })
@@ -36,6 +46,27 @@ export function useFolder(folderId: number | undefined) {
   })
 }
 
+/** Every sub-folder and chapter id nested under a folder -- used to decide
+ * whether "Open all" has anything to do (see useOpenAll) before the user
+ * clicks it, not just to perform the un-hide itself. */
+export function useFolderTreeIds(folderId: number | undefined) {
+  return useQuery({
+    queryKey: ['folder-tree-ids', folderId],
+    queryFn: () => api.get<FolderTreeIds>(`/folders/${folderId}/tree-ids`),
+    enabled: folderId !== undefined,
+  })
+}
+
+/** Every sub-folder and chapter in a book, flattened with depth -- for a
+ * picker that needs names, not just ids (see CreateGoalModal). */
+export function useFolderTree(folderId: number | undefined) {
+  return useQuery({
+    queryKey: ['folder-tree', folderId],
+    queryFn: () => api.get<FolderTreeEntry[]>(`/folders/${folderId}/tree`),
+    enabled: folderId !== undefined,
+  })
+}
+
 export function useChapter(chapterId: number | undefined) {
   return useQuery({
     queryKey: ['chapter', chapterId],
@@ -48,11 +79,34 @@ export function useSettings() {
   return useQuery({ queryKey: ['settings'], queryFn: () => api.get<UserSettings>('/me/settings') })
 }
 
-export function useCollaborators(bookId: number | undefined) {
+export function useShares(resourceType: ShareResourceType, resourceId: number | undefined) {
   return useQuery({
-    queryKey: ['collaborators', bookId],
-    queryFn: () => api.get<Collaborator[]>(`/books/${bookId}/collaborators`),
-    enabled: bookId !== undefined,
+    queryKey: ['shares', resourceType, resourceId],
+    queryFn: () => api.get<Share[]>(`/${resourceType}s/${resourceId}/shares`),
+    enabled: resourceId !== undefined,
+  })
+}
+
+export function useSharedWithMe() {
+  return useQuery({ queryKey: ['shared-with-me'], queryFn: () => api.get<SharedItem[]>('/shared-with-me') })
+}
+
+/** Revoke a share by resource + target user, without being bound to one
+ * resourceId up front -- for a list of many shared items (the "Shared with
+ * me" sidebar) where each row leaves a different resource. */
+export function useLeaveShare() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      resourceType,
+      resourceId,
+      userId,
+    }: {
+      resourceType: ShareResourceType
+      resourceId: number
+      userId: number
+    }) => api.del<void>(`/${resourceType}s/${resourceId}/shares/${userId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['shared-with-me'] }),
   })
 }
 
@@ -68,23 +122,43 @@ export function useSearch(query: string) {
   })
 }
 
-export function useBookStats(bookId: number | undefined, days: number) {
+export function useFolderStats(folderId: number | undefined, days: number) {
   return useQuery({
-    queryKey: ['stats', bookId, days],
-    queryFn: () => api.get<BookStats>(`/books/${bookId}/stats?days=${days}`),
-    enabled: bookId !== undefined,
+    queryKey: ['stats', 'folder', folderId, days],
+    queryFn: () => api.get<Stats>(`/folders/${folderId}/stats?days=${days}`),
+    enabled: folderId !== undefined,
+  })
+}
+
+export function useChapterStats(chapterId: number | undefined, days: number) {
+  return useQuery({
+    queryKey: ['stats', 'chapter', chapterId, days],
+    queryFn: () => api.get<Stats>(`/chapters/${chapterId}/stats?days=${days}`),
+    enabled: chapterId !== undefined,
+  })
+}
+
+export function useWorkspaceStats(days: number, enabled = true) {
+  return useQuery({
+    queryKey: ['stats', 'workspace', days],
+    queryFn: () => api.get<Stats>(`/stats?days=${days}`),
+    enabled,
+  })
+}
+
+export function useGoals() {
+  return useQuery({ queryKey: ['goals'], queryFn: () => api.get<Goal[]>('/goals') })
+}
+
+export function useGoalHistory(goalId: number | undefined) {
+  return useQuery({
+    queryKey: ['goal-history', goalId],
+    queryFn: () => api.get<GoalHistory>(`/goals/${goalId}/history`),
+    enabled: goalId !== undefined,
   })
 }
 
 // -------------------------------------------------------------- mutations --
-
-export function useCreateBook() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (data: { name: string }) => api.post<Book>('/books', data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['books'] }),
-  })
-}
 
 export function useCreateBookWizard() {
   const qc = useQueryClient()
@@ -150,7 +224,8 @@ export function useDeleteBook() {
 export function useCreateFolder(parentId: number) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { name: string }) => api.post<FolderSummary>('/folders', { ...data, parentId }),
+    mutationFn: (data: { name: string; description?: string }) =>
+      api.post<FolderSummary>('/folders', { ...data, parentId }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['folder', parentId] }),
   })
 }
@@ -181,7 +256,8 @@ export function useDeleteFolder(parentId: number | null) {
 export function useCreateChapter(folderId: number) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { name: string }) => api.post<ChapterSummary>('/chapters', { ...data, folderId }),
+    mutationFn: (data: { name: string; description?: string }) =>
+      api.post<ChapterSummary>('/chapters', { ...data, folderId }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['folder', folderId] }),
   })
 }
@@ -196,6 +272,7 @@ export function useUpdateChapter(chapterId: number, folderId: number) {
         contentHtml: string
         notesText: string
         expectedUpdatedAt: string
+        completed: boolean
       }>,
     ) => api.patch<ChapterDetail>(`/chapters/${chapterId}`, data),
     onSuccess: (updated) => {
@@ -288,6 +365,23 @@ export function useUpdateSettings() {
   })
 }
 
+/** Un-hides every sub-folder and chapter nested under a folder that was
+ * individually closed from the sidebar. Fetches the folder's full subtree
+ * of ids, then strips them all from the current user's closed-id lists. */
+export function useOpenAll() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (folderId: number) => {
+      const { folderIds, chapterIds } = await api.get<FolderTreeIds>(`/folders/${folderId}/tree-ids`)
+      const settings = qc.getQueryData<UserSettings>(['settings'])
+      const closedFolderIds = (settings?.closedFolderIds ?? []).filter((id) => !folderIds.includes(id))
+      const closedChapterIds = (settings?.closedChapterIds ?? []).filter((id) => !chapterIds.includes(id))
+      return api.patch<UserSettings>('/me/settings', { closedFolderIds, closedChapterIds })
+    },
+    onSuccess: (updated) => qc.setQueryData(['settings'], updated),
+  })
+}
+
 export function useChangePassword() {
   return useMutation({
     mutationFn: (data: { currentPassword: string; newPassword: string }) => api.patch<void>('/me/password', data),
@@ -320,19 +414,72 @@ export function useReorderBooks() {
   })
 }
 
-export function useAddCollaborator(bookId: number) {
+export function useAddShare(resourceType: ShareResourceType, resourceId: number) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (data: { username: string; role: 'editor' | 'viewer' }) =>
-      api.post<Collaborator>(`/books/${bookId}/collaborators`, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['collaborators', bookId] }),
+      api.post<Share>(`/${resourceType}s/${resourceId}/shares`, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['shares', resourceType, resourceId] }),
   })
 }
 
-export function useRemoveCollaborator(bookId: number) {
+export function useUpdateShare(resourceType: ShareResourceType, resourceId: number) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (userId: number) => api.del<void>(`/books/${bookId}/collaborators/${userId}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['collaborators', bookId] }),
+    mutationFn: (data: { userId: number; role: 'editor' | 'viewer' }) =>
+      api.patch<Share>(`/${resourceType}s/${resourceId}/shares/${data.userId}`, { role: data.role }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['shares', resourceType, resourceId] }),
+  })
+}
+
+export function useRemoveShare(resourceType: ShareResourceType, resourceId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (userId: number) => api.del<void>(`/${resourceType}s/${resourceId}/shares/${userId}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['shares', resourceType, resourceId] })
+      // Covers self-revoke (leaving a share): the item this was scoped to
+      // may need to disappear from the current user's own sidebar.
+      qc.invalidateQueries({ queryKey: ['shared-with-me'] })
+    },
+  })
+}
+
+export function useCreateGoal() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: {
+      resourceType: GoalResourceType
+      resourceId: number
+      goalType: GoalType
+      target: number
+      cadence?: GoalCadence
+      startDate?: string
+      endDate?: string
+      name?: string
+    }) => api.post<Goal>('/goals', data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['goals'] }),
+  })
+}
+
+export function useUpdateGoal() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: { goalId: number; target?: number; startDate?: string; endDate?: string; name?: string }) =>
+      api.patch<Goal>(`/goals/${vars.goalId}`, {
+        target: vars.target,
+        startDate: vars.startDate,
+        endDate: vars.endDate,
+        name: vars.name,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['goals'] }),
+  })
+}
+
+export function useDeleteGoal() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (goalId: number) => api.del<void>(`/goals/${goalId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['goals'] }),
   })
 }

@@ -5,9 +5,12 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:5000',
+        // In Docker, the backend is a separate container reachable by its
+        // service name; on the host it's just localhost.
+        target: process.env.VITE_API_PROXY_TARGET || 'http://localhost:5000',
         changeOrigin: true,
       },
     },

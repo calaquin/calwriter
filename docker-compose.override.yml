@@ -1,0 +1,59 @@
+# Dev overrides, auto-loaded by `docker compose` alongside docker-compose.yml.
+# Bind-mounts the backend source into the container and runs Flask's debug
+# server (auto-reloads on .py changes) instead of gunicorn, so python edits
+# show up without a rebuild/restart. Only rebuild (`docker compose up -d
+# --build app`) when requirements.txt changes or a fresh image is otherwise
+# needed.
+#
+# The frontend service below runs the Vite dev server in its own container
+# (published on :5173) rather than as a bare host process -- keeps it on the
+# same reachable path as the app/db containers instead of an ad-hoc process.
+services:
+  app:
+    volumes:
+      - .:/app
+      # Anonymous volume "shadows" the bind mount above at this one path, so
+      # the container keeps the frontend build baked into the image instead
+      # of a stale (or missing) frontend/dist sitting on the host. Rebuild
+      # the image after frontend changes to refresh what's served here; use
+      # the frontend dev container (below) for live frontend iteration.
+      - /app/frontend/dist
+    environment:
+      - FLASK_DEBUG=1
+    command: ["flask", "--app", "app", "run", "--host", "0.0.0.0", "--port", "5000", "--debug"]
+
+  frontend:
+    image: node:20-slim
+    working_dir: /frontend
+    volumes:
+      - ./frontend:/frontend
+      - frontend_node_modules:/frontend/node_modules
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_PROXY_TARGET=http://app:5000
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    depends_on:
+      - app
+
+  # Dev-only DB browser, published on :8080. Skips Adminer's login screen
+  # entirely -- see docker/adminer-index.php for how -- since this whole
+  # service only ever exists on a local dev machine. Never add this (or a
+  # variant of it) to a prod/shared environment.
+  adminer:
+    image: adminer:latest
+    volumes:
+      - ./docker/adminer-index.php:/var/www/html/index.php:ro
+    ports:
+      - "8080:8080"
+    environment:
+      - ADMINER_AUTOLOGIN_SERVER=db
+      - ADMINER_AUTOLOGIN_USERNAME=calwriter
+      - ADMINER_AUTOLOGIN_PASSWORD=${POSTGRES_PASSWORD}
+      - ADMINER_AUTOLOGIN_DB=calwriter
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  frontend_node_modules:

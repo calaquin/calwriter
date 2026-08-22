@@ -11,12 +11,31 @@ from flask_wtf.csrf import generate_csrf
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from extensions import db, csrf
-from models import User, UserSettings, Folder, Chapter, ChapterVersion, ChapterPresence, BookCollaborator, BookRole, Invite
+from models import (
+    User,
+    UserSettings,
+    Folder,
+    Chapter,
+    ChapterVersion,
+    ChapterPresence,
+    ResourceShare,
+    ShareRole,
+    Invite,
+    Goal,
+    GoalType,
+    GoalCadence,
+    GoalPeriodHistory,
+)
 from permissions import (
     accessible_book_ids,
+    shared_items,
     require_book_access,
     require_folder_access,
     require_chapter_access,
+    require_folder_share_management,
+    require_chapter_share_management,
+    role_for_folder,
+    role_for_chapter,
 )
 from services import (
     VERSION,
@@ -38,9 +57,14 @@ from services import (
     ordered_accessible_books,
     sanitize_html,
     html_to_text,
+    prune_words_per_day,
     export_books_zip,
     import_books_zip,
     snapshot_chapter_version,
+    advance_goal_period,
+    resource_word_count,
+    resource_completed_chapter_count,
+    advance_date_by_cadence,
 )
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
@@ -72,13 +96,6 @@ def _matches_updated_at(chapter: Chapter, expected: str) -> bool:
     return abs((actual_dt - expected_dt).total_seconds()) <= 1
 
 
-def role_for_book(book: Folder) -> str:
-    if book.owner_id == current_user.id:
-        return 'owner'
-    collab = BookCollaborator.query.filter_by(book_id=book.id, user_id=current_user.id).first()
-    return collab.role.value if collab else 'viewer'
-
-
 def book_to_dict(book: Folder) -> dict:
     return {
         'id': book.id,
@@ -86,35 +103,56 @@ def book_to_dict(book: Folder) -> dict:
         'description': book.description,
         'author': book.author,
         'color': book.color,
-        'role': role_for_book(book),
+        'role': role_for_folder(book),
         'createdAt': book.created_at.isoformat(),
         'updatedAt': book.updated_at.isoformat(),
     }
 
 
 def folder_to_dict(folder: Folder) -> dict:
+    parent_accessible = False
+    if folder.parent_id is not None:
+        parent = db.session.get(Folder, folder.parent_id)
+        parent_accessible = parent is not None and role_for_folder(parent) is not None
     return {
         'id': folder.id,
         'bookId': folder.book_id,
         'parentId': folder.parent_id,
+        'parentAccessible': parent_accessible,
         'name': folder.name,
         'description': folder.description,
         'author': folder.author,
         'color': folder.color,
         'position': folder.position,
+        'role': role_for_folder(folder),
+        # Is there a share on this exact folder (not an ancestor, not
+        # ownership)? That's what "Leave" in the UI revokes -- distinct from
+        # role, which also reflects ownership or an inherited ancestor share.
+        'directShare': ResourceShare.query.filter_by(folder_id=folder.id, user_id=current_user.id).first()
+        is not None,
     }
 
 
 def chapter_summary_dict(chapter: Chapter) -> dict:
+    folder = db.session.get(Folder, chapter.folder_id)
     return {
         'id': chapter.id,
         'bookId': chapter.book_id,
         'folderId': chapter.folder_id,
+        'folderAccessible': folder is not None and role_for_folder(folder) is not None,
         'name': chapter.name,
         'description': chapter.description,
         'position': chapter.position,
         'updatedAt': chapter.updated_at.isoformat(),
+        'completedAt': chapter.completed_at.isoformat() if chapter.completed_at else None,
+        'role': role_for_chapter(chapter),
+        'directShare': ResourceShare.query.filter_by(chapter_id=chapter.id, user_id=current_user.id).first()
+        is not None,
     }
+
+
+def share_dict(share: ResourceShare) -> dict:
+    return {'userId': share.user_id, 'username': share.user.username, 'role': share.role.value}
 
 
 def chapter_detail_dict(chapter: Chapter) -> dict:
@@ -135,6 +173,100 @@ def chapter_version_summary_dict(version: ChapterVersion) -> dict:
     }
 
 
+def resource_breadcrumb(folder: Folder | None = None, chapter: Chapter | None = None) -> list:
+    """Ancestor folders from the book root down to (but not including) the
+    resource itself -- empty for a book (no ancestors) or anything sitting
+    directly in a book's root. Only the book entry carries a color, same
+    isBook-gated convention as goal_resource_info/FolderTreeNode."""
+    if chapter is not None:
+        start = db.session.get(Folder, chapter.folder_id)
+    elif folder is not None and folder.parent_id is not None:
+        start = db.session.get(Folder, folder.parent_id)
+    else:
+        return []
+    chain = []
+    node = start
+    while node is not None:
+        chain.append(node)
+        node = db.session.get(Folder, node.parent_id) if node.parent_id is not None else None
+    chain.reverse()
+    return [{'id': f.id, 'name': f.name, 'color': (f.color or None) if f.parent_id is None else None} for f in chain]
+
+
+def goal_resource_info(goal: Goal) -> dict:
+    if goal.folder_id is not None:
+        folder = db.session.get(Folder, goal.folder_id)
+        is_book = (folder.parent_id is None) if folder else None
+        return {
+            'resourceType': 'folder',
+            'resourceId': goal.folder_id,
+            'resourceName': folder.name if folder else None,
+            'resourceIsBook': is_book,
+            # Only a book itself carries a color in the UI (see
+            # FolderTreeNode's isBook-gated color) -- a sub-folder's own
+            # color column isn't otherwise shown anywhere, so it's left
+            # unset here too rather than introducing a new usage of it.
+            'resourceColor': (folder.color or None) if (folder and is_book) else None,
+            'resourceBreadcrumb': resource_breadcrumb(folder=folder) if folder else [],
+            'resourceAccessible': folder is not None and role_for_folder(folder) is not None,
+        }
+    chapter = db.session.get(Chapter, goal.chapter_id)
+    return {
+        'resourceType': 'chapter',
+        'resourceId': goal.chapter_id,
+        'resourceName': chapter.name if chapter else None,
+        'resourceIsBook': None,
+        'resourceColor': None,
+        'resourceBreadcrumb': resource_breadcrumb(chapter=chapter) if chapter else [],
+        'resourceAccessible': chapter is not None and role_for_chapter(chapter) is not None,
+    }
+
+
+def goal_progress(goal: Goal) -> dict:
+    if goal.cadence is not None:
+        period_end = advance_date_by_cadence(goal.period_start, goal.cadence.value) - datetime.timedelta(days=1)
+        # A recurring goal's own end_date can fall mid-period (it isn't
+        # necessarily a cadence boundary) -- report that as the true end
+        # of the current (and final) period rather than the full period.
+        if goal.end_date is not None and goal.end_date < period_end:
+            period_end = goal.end_date
+    else:
+        period_end = goal.end_date
+    if goal.goal_type == GoalType.words:
+        current = (
+            max(0, resource_word_count(folder=goal.folder, chapter=goal.chapter) - goal.baseline_word_count)
+            if goal.baseline_word_count is not None
+            else 0
+        )
+    else:
+        current = resource_completed_chapter_count(goal.folder, goal.period_start)
+    percent = min(100, round(current / goal.target * 100)) if goal.target > 0 else 0
+    return {
+        'current': current,
+        'percent': percent,
+        'periodStart': goal.period_start.isoformat(),
+        'periodEnd': period_end.isoformat() if period_end else None,
+        'achieved': current >= goal.target,
+        'started': goal.goal_type != GoalType.words or goal.baseline_word_count is not None,
+    }
+
+
+def goal_dict(goal: Goal) -> dict:
+    d = {
+        'id': goal.id,
+        'name': goal.name,
+        'goalType': goal.goal_type.value,
+        'target': goal.target,
+        'cadence': goal.cadence.value if goal.cadence else None,
+        'startDate': goal.start_date.isoformat(),
+        'endDate': goal.end_date.isoformat() if goal.end_date else None,
+        'createdAt': goal.created_at.isoformat(),
+    }
+    d.update(goal_resource_info(goal))
+    d.update(goal_progress(goal))
+    return d
+
+
 def settings_to_dict(settings: UserSettings) -> dict:
     return {
         'darkMode': settings.dark_mode,
@@ -152,6 +284,8 @@ def settings_to_dict(settings: UserSettings) -> dict:
         'closedFolderIds': settings.closed_folder_ids,
         'closedChapterIds': settings.closed_chapter_ids,
         'bookOrder': settings.book_order,
+        'hiddenGoalIds': settings.hidden_goal_ids,
+        'goalOrder': settings.goal_order,
     }
 
 
@@ -312,6 +446,27 @@ def api_list_books():
     return jsonify([book_to_dict(b) for b in ordered_accessible_books()])
 
 
+@api_bp.route('/stats')
+def api_workspace_stats():
+    """Same shape as the per-folder/per-chapter stats endpoints, aggregated
+    across every book the current user has whole-book access to (their own
+    plus ones shared with them) -- the workspace-wide view."""
+    days = int(request.args.get('days', 7))
+    book_ids = accessible_book_ids()
+    chapters = Chapter.query.filter(Chapter.book_id.in_(book_ids)).all() if book_ids else []
+    total_words = 0
+    words_per_day = {}
+    for chapter in chapters:
+        count = len(html_to_text(chapter.content_html).split())
+        total_words += count
+        day = chapter.updated_at.date().isoformat()
+        words_per_day[day] = words_per_day.get(day, 0) + count
+    if days > 0:
+        cutoff = (datetime.date.today() - datetime.timedelta(days=days - 1)).isoformat()
+        words_per_day = {d: c for d, c in words_per_day.items() if d >= cutoff}
+    return jsonify({'totalWords': total_words, 'wordsPerDay': prune_words_per_day(words_per_day)})
+
+
 @api_bp.route('/books', methods=['POST'])
 def api_create_book():
     data = request.get_json(silent=True) or {}
@@ -390,25 +545,6 @@ def api_create_book_wizard():
     return jsonify(book_to_dict(book)), 201
 
 
-@api_bp.route('/books/<int:book_id>/stats')
-def api_book_stats(book_id):
-    require_book_access(book_id, 'viewer')
-    days = int(request.args.get('days', 7))
-    folder_ids = descendant_folder_ids(book_id)
-    chapters = Chapter.query.filter(Chapter.folder_id.in_(folder_ids)).all()
-    total_words = 0
-    words_per_day = {}
-    for chapter in chapters:
-        count = len(html_to_text(chapter.content_html).split())
-        total_words += count
-        day = chapter.updated_at.date().isoformat()
-        words_per_day[day] = words_per_day.get(day, 0) + count
-    if days > 0:
-        cutoff = (datetime.date.today() - datetime.timedelta(days=days - 1)).isoformat()
-        words_per_day = {d: c for d, c in words_per_day.items() if d >= cutoff}
-    return jsonify({'totalWords': total_words, 'wordsPerDay': words_per_day})
-
-
 @api_bp.route('/books/<int:book_id>/export.docx')
 def api_export_book_docx(book_id):
     book = require_book_access(book_id, 'viewer')
@@ -423,65 +559,164 @@ def api_export_book_docx(book_id):
                       mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
 
 
-# ---------------------------------------------------------- collaborators --
+# ---------------------------------------------------------------- shares --
+# Sharing a whole book is a share on its root folder row -- these folder
+# endpoints work for both. Sub-folder and chapter shares grant access to
+# just that item (and, for a folder, everything nested under it).
 
-@api_bp.route('/books/<int:book_id>/collaborators')
-def api_list_collaborators(book_id):
-    require_book_access(book_id, 'owner')
-    rows = BookCollaborator.query.filter_by(book_id=book_id).all()
-    return jsonify([
-        {'userId': r.user_id, 'username': r.user.username, 'role': r.role.value}
-        for r in rows
-    ])
-
-
-@api_bp.route('/books/<int:book_id>/collaborators', methods=['POST'])
-def api_add_collaborator(book_id):
-    book = require_book_access(book_id, 'owner')
+def _add_share(existing_query, make_share, book: Folder):
     data = request.get_json(silent=True) or {}
     username = data.get('username', '')
     role = data.get('role', '')
     if role not in ('editor', 'viewer'):
-        return error('role must be "editor" or "viewer"')
+        return None, error('role must be "editor" or "viewer"')
     user = User.query.filter_by(username=username).first()
     if not user:
-        return error('No such user', 404)
+        return None, error('No such user', 404)
     if user.id == book.owner_id:
-        return error('User already owns this book', 409)
-    collab = BookCollaborator.query.filter_by(book_id=book_id, user_id=user.id).first()
-    if collab:
-        collab.role = BookRole(role)
+        return None, error('User already owns this book', 409)
+    share = existing_query(user.id).first()
+    if share:
+        share.role = ShareRole(role)
     else:
-        collab = BookCollaborator(book_id=book_id, user_id=user.id, role=BookRole(role))
-        db.session.add(collab)
+        share = make_share(user.id, ShareRole(role))
+        db.session.add(share)
     db.session.commit()
-    return jsonify({'userId': user.id, 'username': user.username, 'role': role}), 201
+    return share, None
 
 
-@api_bp.route('/books/<int:book_id>/collaborators/<int:user_id>', methods=['PATCH'])
-def api_update_collaborator(book_id, user_id):
-    require_book_access(book_id, 'owner')
+@api_bp.route('/folders/<int:folder_id>/shares')
+def api_list_folder_shares(folder_id):
+    folder = Folder.query.get_or_404(folder_id)
+    require_folder_share_management(folder)
+    rows = ResourceShare.query.filter_by(folder_id=folder_id).all()
+    return jsonify([share_dict(r) for r in rows])
+
+
+@api_bp.route('/folders/<int:folder_id>/shares', methods=['POST'])
+def api_add_folder_share(folder_id):
+    folder = Folder.query.get_or_404(folder_id)
+    require_folder_share_management(folder)
+    book = db.session.get(Folder, folder.book_id)
+    share, err = _add_share(
+        lambda uid: ResourceShare.query.filter_by(folder_id=folder_id, user_id=uid),
+        lambda uid, role: ResourceShare(folder_id=folder_id, user_id=uid, role=role),
+        book,
+    )
+    if err:
+        return err
+    return jsonify(share_dict(share)), 201
+
+
+@api_bp.route('/folders/<int:folder_id>/shares/<int:user_id>', methods=['PATCH'])
+def api_update_folder_share(folder_id, user_id):
+    folder = Folder.query.get_or_404(folder_id)
+    require_folder_share_management(folder)
     data = request.get_json(silent=True) or {}
     role = data.get('role', '')
     if role not in ('editor', 'viewer'):
         return error('role must be "editor" or "viewer"')
-    collab = BookCollaborator.query.filter_by(book_id=book_id, user_id=user_id).first()
-    if not collab:
-        return error('Not a collaborator', 404)
-    collab.role = BookRole(role)
+    share = ResourceShare.query.filter_by(folder_id=folder_id, user_id=user_id).first()
+    if not share:
+        return error('Not shared with this user', 404)
+    share.role = ShareRole(role)
     db.session.commit()
-    return jsonify({'userId': user_id, 'role': role})
+    return jsonify(share_dict(share))
 
 
-@api_bp.route('/books/<int:book_id>/collaborators/<int:user_id>', methods=['DELETE'])
-def api_remove_collaborator(book_id, user_id):
-    require_book_access(book_id, 'owner')
-    collab = BookCollaborator.query.filter_by(book_id=book_id, user_id=user_id).first()
-    if not collab:
-        return error('Not a collaborator', 404)
-    db.session.delete(collab)
+@api_bp.route('/folders/<int:folder_id>/shares/<int:user_id>', methods=['DELETE'])
+def api_remove_folder_share(folder_id, user_id):
+    folder = Folder.query.get_or_404(folder_id)
+    # A share can always be revoked by whoever manages it, or by the person
+    # it was granted to (leaving on their own, no management role needed).
+    if user_id != current_user.id:
+        require_folder_share_management(folder)
+    share = ResourceShare.query.filter_by(folder_id=folder_id, user_id=user_id).first()
+    if not share:
+        return error('Not shared with this user', 404)
+    db.session.delete(share)
     db.session.commit()
     return ('', 204)
+
+
+@api_bp.route('/chapters/<int:chapter_id>/shares')
+def api_list_chapter_shares(chapter_id):
+    chapter = Chapter.query.get_or_404(chapter_id)
+    require_chapter_share_management(chapter)
+    rows = ResourceShare.query.filter_by(chapter_id=chapter_id).all()
+    return jsonify([share_dict(r) for r in rows])
+
+
+@api_bp.route('/chapters/<int:chapter_id>/shares', methods=['POST'])
+def api_add_chapter_share(chapter_id):
+    chapter = Chapter.query.get_or_404(chapter_id)
+    require_chapter_share_management(chapter)
+    book = db.session.get(Folder, chapter.book_id)
+    share, err = _add_share(
+        lambda uid: ResourceShare.query.filter_by(chapter_id=chapter_id, user_id=uid),
+        lambda uid, role: ResourceShare(chapter_id=chapter_id, user_id=uid, role=role),
+        book,
+    )
+    if err:
+        return err
+    return jsonify(share_dict(share)), 201
+
+
+@api_bp.route('/chapters/<int:chapter_id>/shares/<int:user_id>', methods=['PATCH'])
+def api_update_chapter_share(chapter_id, user_id):
+    chapter = Chapter.query.get_or_404(chapter_id)
+    require_chapter_share_management(chapter)
+    data = request.get_json(silent=True) or {}
+    role = data.get('role', '')
+    if role not in ('editor', 'viewer'):
+        return error('role must be "editor" or "viewer"')
+    share = ResourceShare.query.filter_by(chapter_id=chapter_id, user_id=user_id).first()
+    if not share:
+        return error('Not shared with this user', 404)
+    share.role = ShareRole(role)
+    db.session.commit()
+    return jsonify(share_dict(share))
+
+
+@api_bp.route('/chapters/<int:chapter_id>/shares/<int:user_id>', methods=['DELETE'])
+def api_remove_chapter_share(chapter_id, user_id):
+    chapter = Chapter.query.get_or_404(chapter_id)
+    if user_id != current_user.id:
+        require_chapter_share_management(chapter)
+    share = ResourceShare.query.filter_by(chapter_id=chapter_id, user_id=user_id).first()
+    if not share:
+        return error('Not shared with this user', 404)
+    db.session.delete(share)
+    db.session.commit()
+    return ('', 204)
+
+
+@api_bp.route('/shared-with-me')
+def api_shared_with_me():
+    folders, chapters = shared_items()
+    items = [
+        {
+            'type': 'folder',
+            'id': f.id,
+            'parentId': f.parent_id,
+            'name': f.name,
+            'role': role_for_folder(f),
+            'bookName': db.session.get(Folder, f.book_id).name,
+        }
+        for f in folders
+    ] + [
+        {
+            'type': 'chapter',
+            'id': c.id,
+            'parentId': None,
+            'name': c.name,
+            'role': role_for_chapter(c),
+            'bookName': db.session.get(Folder, c.book_id).name,
+        }
+        for c in chapters
+    ]
+    items.sort(key=lambda i: i['name'].lower())
+    return jsonify(items)
 
 
 # ------------------------------------------------------------- folders --
@@ -495,6 +730,62 @@ def api_get_folder(folder_id):
     d['folders'] = [folder_to_dict(f) for f in subfolders]
     d['chapters'] = [chapter_summary_dict(c) for c in chapters]
     return jsonify(d)
+
+
+@api_bp.route('/folders/<int:folder_id>/tree-ids')
+def api_folder_tree_ids(folder_id):
+    """Every sub-folder and chapter id nested under this folder (not
+    including the folder itself) -- for "Open all", which un-hides a whole
+    subtree from the sidebar in one action."""
+    folder = require_folder_access(folder_id, 'viewer')
+    folder_ids = [fid for fid in descendant_folder_ids(folder.id) if fid != folder.id]
+    chapter_ids = [
+        c.id
+        for c in Chapter.query.filter(Chapter.folder_id.in_(descendant_folder_ids(folder.id))).with_entities(Chapter.id).all()
+    ]
+    return jsonify({'folderIds': folder_ids, 'chapterIds': chapter_ids})
+
+
+@api_bp.route('/folders/<int:folder_id>/tree')
+def api_folder_tree(folder_id):
+    """Every sub-folder and chapter nested under this folder (not including
+    the folder itself), flattened depth-first with a name and depth on each
+    entry -- for a picker that needs to let someone choose any sub-folder or
+    chapter within a book in one dropdown (see the goal-creation modal),
+    where tree-ids' bare id lists aren't enough."""
+    folder = require_folder_access(folder_id, 'viewer')
+    entries = []
+
+    def walk(parent_id, depth):
+        subfolders = Folder.query.filter_by(parent_id=parent_id).order_by(Folder.position, Folder.created_at).all()
+        for f in subfolders:
+            entries.append({'id': f.id, 'type': 'folder', 'name': f.name, 'depth': depth})
+            walk(f.id, depth + 1)
+        chapters = Chapter.query.filter_by(folder_id=parent_id).order_by(Chapter.position, Chapter.created_at).all()
+        for c in chapters:
+            entries.append({'id': c.id, 'type': 'chapter', 'name': c.name, 'depth': depth})
+
+    walk(folder.id, 0)
+    return jsonify(entries)
+
+
+@api_bp.route('/folders/<int:folder_id>/stats')
+def api_folder_stats(folder_id):
+    folder = require_folder_access(folder_id, 'viewer')
+    days = int(request.args.get('days', 7))
+    folder_ids = descendant_folder_ids(folder.id)
+    chapters = Chapter.query.filter(Chapter.folder_id.in_(folder_ids)).all()
+    total_words = 0
+    words_per_day = {}
+    for chapter in chapters:
+        count = len(html_to_text(chapter.content_html).split())
+        total_words += count
+        day = chapter.updated_at.date().isoformat()
+        words_per_day[day] = words_per_day.get(day, 0) + count
+    if days > 0:
+        cutoff = (datetime.date.today() - datetime.timedelta(days=days - 1)).isoformat()
+        words_per_day = {d: c for d, c in words_per_day.items() if d >= cutoff}
+    return jsonify({'totalWords': total_words, 'wordsPerDay': prune_words_per_day(words_per_day)})
 
 
 @api_bp.route('/folders', methods=['POST'])
@@ -511,6 +802,7 @@ def api_create_folder():
         parent_id=parent.id,
         book_id=parent.book_id,
         name=name,
+        description=data.get('description', ''),
         position=next_folder_position(parent.id),
     )
     db.session.add(folder)
@@ -628,6 +920,7 @@ def api_create_chapter():
         folder_id=folder.id,
         book_id=folder.book_id,
         name=name,
+        description=data.get('description', ''),
         position=next_chapter_position(folder.id),
     )
     db.session.add(chapter)
@@ -671,6 +964,12 @@ def api_update_chapter(chapter_id):
             chapter.content_html = new_content
     if 'notesText' in data:
         chapter.notes_text = data['notesText']
+    if 'completed' in data:
+        if data['completed']:
+            if chapter.completed_at is None:
+                chapter.completed_at = datetime.datetime.now(datetime.timezone.utc)
+        else:
+            chapter.completed_at = None
     db.session.commit()
     return jsonify(chapter_detail_dict(chapter))
 
@@ -756,6 +1055,27 @@ def api_restore_chapter_version(chapter_id, version_id):
     return jsonify(chapter_detail_dict(chapter))
 
 
+@api_bp.route('/chapters/<int:chapter_id>/stats')
+def api_chapter_stats(chapter_id):
+    """Word count over time for a single chapter, from its version
+    checkpoints (unlike folder/book stats, which bucket by each chapter's
+    last-edited day -- a single chapter's own history is available, so this
+    charts real word-count-per-day instead of that coarser proxy)."""
+    chapter = require_chapter_access(chapter_id, 'viewer')
+    days = int(request.args.get('days', 7))
+    words_per_day = {}
+    versions = ChapterVersion.query.filter_by(chapter_id=chapter.id).order_by(ChapterVersion.created_at).all()
+    for version in versions:
+        day = version.created_at.date().isoformat()
+        words_per_day[day] = len(html_to_text(version.content_html).split())
+    total_words = len(html_to_text(chapter.content_html).split())
+    words_per_day[datetime.date.today().isoformat()] = total_words
+    if days > 0:
+        cutoff = (datetime.date.today() - datetime.timedelta(days=days - 1)).isoformat()
+        words_per_day = {d: c for d, c in words_per_day.items() if d >= cutoff}
+    return jsonify({'totalWords': total_words, 'wordsPerDay': prune_words_per_day(words_per_day)})
+
+
 PRESENCE_RECENT_WINDOW = datetime.timedelta(seconds=30)
 
 
@@ -786,6 +1106,184 @@ def api_list_chapter_presence(chapter_id):
     return jsonify([{'userId': r.user_id, 'username': r.user.username} for r in rows])
 
 
+# --------------------------------------------------------------- goals --
+
+@api_bp.route('/goals')
+def api_list_goals():
+    goals = Goal.query.filter_by(user_id=current_user.id).order_by(Goal.created_at.desc()).all()
+    for goal in goals:
+        advance_goal_period(goal)
+    db.session.commit()
+    return jsonify([goal_dict(g) for g in goals])
+
+
+@api_bp.route('/goals', methods=['POST'])
+def api_create_goal():
+    data = request.get_json(silent=True) or {}
+    resource_type = data.get('resourceType')
+    resource_id = data.get('resourceId')
+    goal_type = data.get('goalType')
+    target = data.get('target')
+    cadence = data.get('cadence')
+    start_date_raw = data.get('startDate')
+    end_date_raw = data.get('endDate')
+    name = clean_name(data.get('name') or '')
+
+    if resource_type not in ('folder', 'chapter'):
+        return error('resourceType must be "folder" or "chapter"')
+    if goal_type not in ('words', 'chapters'):
+        return error('goalType must be "words" or "chapters"')
+    if goal_type == 'chapters' and resource_type != 'folder':
+        return error('Chapter-count goals can only be set on a book or sub-folder')
+    if not isinstance(target, int) or isinstance(target, bool) or target <= 0:
+        return error('target must be a positive integer')
+
+    if resource_type == 'folder':
+        folder = require_folder_access(resource_id, 'editor')
+        folder_id, chapter_id = folder.id, None
+    else:
+        chapter = require_chapter_access(resource_id, 'editor')
+        folder_id, chapter_id = None, chapter.id
+
+    try:
+        start_date = datetime.date.fromisoformat(start_date_raw) if start_date_raw else datetime.date.today()
+    except (TypeError, ValueError):
+        return error('startDate must be an ISO date')
+
+    end_date = None
+    if cadence is not None:
+        if cadence not in ('daily', 'weekly', 'monthly'):
+            return error('cadence must be "daily", "weekly", or "monthly"')
+        # Optional for a recurring goal -- open-ended (never stops
+        # recurring) unless a date is given, unlike a fixed-range goal
+        # below, which always needs one.
+        if end_date_raw:
+            try:
+                end_date = datetime.date.fromisoformat(end_date_raw)
+            except (TypeError, ValueError):
+                return error('endDate must be an ISO date')
+            if end_date < start_date:
+                return error('endDate must be on or after startDate')
+    else:
+        if not end_date_raw:
+            return error('endDate is required for a fixed-range goal')
+        try:
+            end_date = datetime.date.fromisoformat(end_date_raw)
+        except (TypeError, ValueError):
+            return error('endDate must be an ISO date')
+        if end_date < start_date:
+            return error('endDate must be on or after startDate')
+
+    goal = Goal(
+        user_id=current_user.id,
+        folder_id=folder_id,
+        chapter_id=chapter_id,
+        name=name,
+        goal_type=GoalType(goal_type),
+        target=target,
+        cadence=GoalCadence(cadence) if cadence else None,
+        start_date=start_date,
+        end_date=end_date,
+        period_start=start_date,
+    )
+    db.session.add(goal)
+    db.session.flush()
+    advance_goal_period(goal)
+    db.session.commit()
+    return jsonify(goal_dict(goal)), 201
+
+
+@api_bp.route('/goals/<int:goal_id>', methods=['PATCH'])
+def api_update_goal(goal_id):
+    goal = Goal.query.filter_by(id=goal_id, user_id=current_user.id).first_or_404()
+    data = request.get_json(silent=True) or {}
+
+    if 'name' in data:
+        goal.name = clean_name(data['name'] or '')
+
+    if 'target' in data:
+        if not isinstance(data['target'], int) or isinstance(data['target'], bool) or data['target'] <= 0:
+            return error('target must be a positive integer')
+        goal.target = data['target']
+
+    new_start_date = None
+    if 'startDate' in data:
+        try:
+            new_start_date = datetime.date.fromisoformat(data['startDate'])
+        except (TypeError, ValueError):
+            return error('startDate must be an ISO date')
+
+    end_date_provided = 'endDate' in data
+    new_end_date = None
+    if end_date_provided and data['endDate']:
+        try:
+            new_end_date = datetime.date.fromisoformat(data['endDate'])
+        except (TypeError, ValueError):
+            return error('endDate must be an ISO date')
+    elif end_date_provided and goal.cadence is None:
+        # A fixed-range goal always has an end date -- only a recurring
+        # goal can clear it back to "never ends" by sending endDate: ''.
+        return error('A fixed-range goal must have an endDate')
+
+    if new_start_date is not None or end_date_provided:
+        effective_start = new_start_date if new_start_date is not None else goal.start_date
+        effective_end = new_end_date if end_date_provided else goal.end_date
+        if effective_end is not None and effective_end < effective_start:
+            return error('endDate must be on or after startDate')
+        if new_start_date is not None:
+            # Moving the anchor date invalidates any baseline captured
+            # against the old one -- re-anchor the current period here and
+            # let advance_goal_period() lazily recapture it below (or roll
+            # straight past it, if the new date is already in the past).
+            goal.start_date = new_start_date
+            goal.period_start = new_start_date
+            goal.baseline_word_count = None
+        if end_date_provided:
+            goal.end_date = new_end_date
+
+    advance_goal_period(goal)
+    db.session.commit()
+    return jsonify(goal_dict(goal))
+
+
+@api_bp.route('/goals/<int:goal_id>', methods=['DELETE'])
+def api_delete_goal(goal_id):
+    goal = Goal.query.filter_by(id=goal_id, user_id=current_user.id).first_or_404()
+    db.session.delete(goal)
+    db.session.commit()
+    return ('', 204)
+
+
+def goal_period_history_dict(entry: GoalPeriodHistory) -> dict:
+    return {
+        'id': entry.id,
+        'periodStart': entry.period_start.isoformat(),
+        'periodEnd': entry.period_end.isoformat(),
+        'target': entry.target,
+        'current': entry.current,
+        'percent': min(100, round(entry.current / entry.target * 100)) if entry.target > 0 else 0,
+        'achieved': entry.achieved,
+    }
+
+
+@api_bp.route('/goals/<int:goal_id>/history')
+def api_goal_history(goal_id):
+    """Past completed periods of a recurring goal (see GoalPeriodHistory --
+    only ever populated going forward from whenever the goal started being
+    read after this feature shipped, not backfilled). Also rolls the goal
+    itself forward first, so a period that just elapsed shows up
+    immediately rather than waiting for some other request to trigger it."""
+    goal = Goal.query.filter_by(id=goal_id, user_id=current_user.id).first_or_404()
+    advance_goal_period(goal)
+    db.session.commit()
+    entries = (
+        GoalPeriodHistory.query.filter_by(goal_id=goal.id)
+        .order_by(GoalPeriodHistory.period_start.desc())
+        .all()
+    )
+    return jsonify({'goal': goal_dict(goal), 'periods': [goal_period_history_dict(e) for e in entries]})
+
+
 # ----------------------------------------------------------------- me --
 
 @api_bp.route('/me/settings')
@@ -813,6 +1311,8 @@ def api_update_settings():
         'closedFolderIds': 'closed_folder_ids',
         'closedChapterIds': 'closed_chapter_ids',
         'bookOrder': 'book_order',
+        'hiddenGoalIds': 'hidden_goal_ids',
+        'goalOrder': 'goal_order',
     }
     for api_key, attr in field_map.items():
         if api_key in data:
@@ -828,19 +1328,34 @@ def api_search():
     query = (request.args.get('q') or '').strip()
     results = []
     if query:
-        ids = accessible_book_ids()
-        if ids:
+        book_ids = accessible_book_ids()
+        shared_folders, shared_chapters = shared_items()
+        folder_ids = set()
+        for f in shared_folders:
+            folder_ids.update(descendant_folder_ids(f.id))
+        chapter_ids = {c.id for c in shared_chapters}
+
+        conditions = []
+        if book_ids:
+            conditions.append(Chapter.book_id.in_(book_ids))
+        if folder_ids:
+            conditions.append(Chapter.folder_id.in_(folder_ids))
+        if chapter_ids:
+            conditions.append(Chapter.id.in_(chapter_ids))
+
+        candidates = []
+        if conditions:
             candidates = (
-                Chapter.query.filter(Chapter.book_id.in_(ids))
+                Chapter.query.filter(db.or_(*conditions))
                 .filter(Chapter.search_tsv.match(query, postgresql_regconfig='english'))
                 .all()
             )
-            qlower = query.lower()
-            for chapter in candidates:
-                if qlower in chapter.name.lower() or qlower in html_to_text(chapter.content_html).lower():
-                    results.append({**chapter_summary_dict(chapter), 'matchType': 'chapter'})
-                if qlower in (chapter.notes_text or '').lower():
-                    results.append({**chapter_summary_dict(chapter), 'matchType': 'notes'})
+        qlower = query.lower()
+        for chapter in candidates:
+            if qlower in chapter.name.lower() or qlower in html_to_text(chapter.content_html).lower():
+                results.append({**chapter_summary_dict(chapter), 'matchType': 'chapter'})
+            if qlower in (chapter.notes_text or '').lower():
+                results.append({**chapter_summary_dict(chapter), 'matchType': 'notes'})
     return jsonify(results)
 
 

@@ -91,9 +91,125 @@ function isCaretAtStartOfBlock(block: HTMLElement): boolean {
   return preRange.toString().length === 0
 }
 
+// Closest <li> the caret sits in, if any -- Tab means "nest this list item"
+// there, vs. "indent this paragraph's first line" everywhere else.
+function closestListItem(editor: HTMLDivElement): HTMLLIElement | null {
+  const anchor = window.getSelection()?.anchorNode
+  const anchorEl = anchor instanceof HTMLElement ? anchor : anchor?.parentElement
+  const li = anchorEl?.closest<HTMLLIElement>('li')
+  return li && editor.contains(li) ? li : null
+}
+
+// Text from the start of `block` up to the caret -- used to recognize a
+// markdown shortcut ("- ", "1. ", "[ ] ") typed at the start of a line.
+function textBeforeCaretInBlock(block: HTMLElement): string {
+  const selection = window.getSelection()
+  if (!selection?.rangeCount) return ''
+  const range = selection.getRangeAt(0)
+  if (!range.collapsed) return ''
+  const preRange = document.createRange()
+  preRange.selectNodeContents(block)
+  preRange.setEnd(range.startContainer, range.startOffset)
+  return preRange.toString()
+}
+
+// Moving an <li> in the DOM doesn't reliably keep the caret inside it --
+// especially when it's empty (just a <br> placeholder), the browser tends
+// to lose track and silently leave the caret wherever it happened to end up
+// after the mutation, so a second Tab press acts on the wrong item entirely.
+// Restores the caret at the end of the item's own content, i.e. right
+// before any nested sublist rather than inside it.
+function placeCaretAtEndOfOwnContent(li: HTMLElement) {
+  const selection = window.getSelection()
+  if (!selection) return
+  const range = document.createRange()
+  const nested = Array.from(li.children).find((c) => c.tagName === 'UL' || c.tagName === 'OL')
+  if (nested) {
+    range.setStartBefore(nested)
+    range.collapse(true)
+  } else {
+    range.selectNodeContents(li)
+    range.collapse(false)
+  }
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
+// Chromium's execCommand('indent'/'outdent') turned out unusable for nested
+// lists: indent nests a list as a *sibling* of the <li> it followed instead
+// of inside it, and outdent is worse -- on a selection several levels deep
+// it sometimes outdented a *different*, unrelated top-level item instead of
+// the one the caret was in. Rather than fight the browser's own notion of
+// "indent" (which can't be corrected after the fact, since it already chose
+// the wrong node), both are implemented directly as plain DOM moves.
+
+// Nests `li` under its immediately preceding sibling, creating a sublist
+// there if one doesn't already exist. No-op (returns false) for the first
+// item in a list -- there's nothing to nest it under.
+function indentListItem(li: HTMLLIElement): boolean {
+  const prevLi = li.previousElementSibling
+  if (!prevLi || prevLi.tagName !== 'LI') return false
+  const list = li.parentElement
+  if (!list) return false
+  let sublist = Array.from(prevLi.children).find((c) => c.tagName === 'UL' || c.tagName === 'OL') as
+    | HTMLElement
+    | undefined
+  if (!sublist) {
+    sublist = document.createElement(list.tagName.toLowerCase())
+    prevLi.appendChild(sublist)
+  }
+  sublist.appendChild(li)
+  placeCaretAtEndOfOwnContent(li)
+  return true
+}
+
+// Moves `li` up to be a sibling of the <li> its list is nested inside. Any
+// siblings after `li` in its current list move with it, becoming its own
+// new sublist (so outdenting item 2 of [2, 3, 4] doesn't strand 3 and 4
+// behind at the old depth). No-op (returns false) at the top level.
+function outdentListItem(li: HTMLLIElement): boolean {
+  const list = li.parentElement
+  if (!list) return false
+  const parentLi = list.parentElement
+  if (!parentLi || parentLi.tagName !== 'LI') return false
+  const grandList = parentLi.parentElement
+  if (!grandList) return false
+
+  const laterSiblings: Element[] = []
+  for (let sib = li.nextElementSibling; sib; ) {
+    const next: Element | null = sib.nextElementSibling
+    laterSiblings.push(sib)
+    sib = next
+  }
+  if (laterSiblings.length > 0) {
+    const subList = document.createElement(list.tagName.toLowerCase())
+    for (const s of laterSiblings) subList.appendChild(s)
+    li.appendChild(subList)
+  }
+
+  grandList.insertBefore(li, parentLi.nextElementSibling)
+  if (list.children.length === 0) list.remove()
+  placeCaretAtEndOfOwnContent(li)
+  return true
+}
+
+function clearBlockText(block: HTMLElement) {
+  const selection = window.getSelection()
+  if (!selection) return
+  const range = document.createRange()
+  range.selectNodeContents(block)
+  selection.removeAllRanges()
+  selection.addRange(range)
+  document.execCommand('delete')
+}
+
 function handleEditorKeyDown(e: KeyboardEvent<HTMLDivElement>) {
   if (e.key === 'Tab') {
     e.preventDefault()
+    const li = closestListItem(e.currentTarget)
+    if (li) {
+      return e.shiftKey ? outdentListItem(li) : indentListItem(li)
+    }
     return setFirstLineIndent(e.currentTarget, e.shiftKey)
   }
   if (e.key === 'Backspace' && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -206,6 +322,74 @@ export default function ChapterEditor({
     ref.current?.focus()
   }
 
+  // Marks the list item(s) touched by the current selection as checklist
+  // items (creating a list first if the caret isn't in one yet), so both
+  // the toolbar button and the "[] "/"[x] " markdown shortcuts share one
+  // implementation. Falls back to just the caret's own item when nothing
+  // in the current selection intersects an <li> (e.g. a collapsed caret in
+  // freshly-created list markup, before layout has settled).
+  function applyChecklist(checked: boolean) {
+    const editor = ref.current
+    if (!editor) return
+    editor.focus()
+    if (!closestListItem(editor)) execCmd('insertUnorderedList')
+    const selection = window.getSelection()
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : null
+    const allItems = Array.from(editor.querySelectorAll('li'))
+    const affected = range ? allItems.filter((li) => range.intersectsNode(li)) : []
+    const current = closestListItem(editor)
+    const targets = affected.length > 0 ? affected : current ? [current] : []
+    for (const li of targets) {
+      li.classList.add('checklist-item')
+      li.classList.toggle('checked', checked)
+    }
+    onChange(editor.innerHTML)
+    onWordCountChange?.(countWords(editor))
+  }
+
+  // Converts "- "/"* " to a bullet list, "1. " to a numbered list, and
+  // "[] "/"[x] " to a checklist item -- but only when that's *all* the
+  // block contains so far, so it only fires when starting a fresh line
+  // with markdown syntax, never mid-sentence.
+  function handleMarkdownShortcut(e: KeyboardEvent<HTMLDivElement>): boolean {
+    const editor = e.currentTarget
+    const anchor = window.getSelection()?.anchorNode
+    const anchorEl = anchor instanceof HTMLElement ? anchor : anchor?.parentElement
+    const block = anchorEl?.closest<HTMLElement>('p, div, li')
+    if (!block || !editor.contains(block)) return false
+    const text = textBeforeCaretInBlock(block)
+
+    if (/^[-*]$/.test(text)) {
+      e.preventDefault()
+      clearBlockText(block)
+      execCmd('insertUnorderedList')
+      onChange(editor.innerHTML)
+      onWordCountChange?.(countWords(editor))
+      return true
+    }
+    if (/^\d+\.$/.test(text)) {
+      e.preventDefault()
+      clearBlockText(block)
+      execCmd('insertOrderedList')
+      onChange(editor.innerHTML)
+      onWordCountChange?.(countWords(editor))
+      return true
+    }
+    if (/^\[ ?\]$/.test(text)) {
+      e.preventDefault()
+      clearBlockText(block)
+      applyChecklist(false)
+      return true
+    }
+    if (/^\[[xX]\]$/.test(text)) {
+      e.preventDefault()
+      clearBlockText(block)
+      applyChecklist(true)
+      return true
+    }
+    return false
+  }
+
   function toggleEditorWidth() {
     setIsFullWidth((fullWidth) => {
       const next = !fullWidth
@@ -230,6 +414,7 @@ export default function ChapterEditor({
         <span className="toolbar-divider" aria-hidden="true" />
         <button type="button" className="icon-btn icon-bulleted-list" onMouseDown={(e) => e.preventDefault()} onClick={() => runCommand('insertUnorderedList')} title="Bulleted list" aria-label="Bulleted list" />
         <button type="button" className="icon-btn icon-numbered-list" onMouseDown={(e) => e.preventDefault()} onClick={() => runCommand('insertOrderedList')} title="Numbered list" aria-label="Numbered list" />
+        <button type="button" className="icon-btn icon-checklist" onMouseDown={(e) => e.preventDefault()} onClick={() => applyChecklist(false)} title="Checklist" aria-label="Checklist" />
         <span className="toolbar-divider" aria-hidden="true" />
         <button type="button" className="icon-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => runCommand('justifyLeft')} title="Align left" aria-label="Align left"><AlignmentIcon align="left" /></button>
         <button type="button" className="icon-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => runCommand('justifyCenter')} title="Center" aria-label="Center"><AlignmentIcon align="center" /></button>
@@ -316,12 +501,49 @@ export default function ChapterEditor({
           contentEditable
           suppressContentEditableWarning
           onInput={() => {
-            onChange(ref.current?.innerHTML ?? '')
-            onWordCountChange?.(countWords(ref.current))
+            const editor = ref.current
+            if (editor) {
+              const li = closestListItem(editor)
+              if (li && !li.classList.contains('checklist-item')) {
+                // Enter inside a checklist item creates a new <li> the
+                // browser knows nothing about our "checklist-item" class --
+                // carry it over (from whichever neighbor it split from) so
+                // the new line keeps its checkbox instead of reverting to a
+                // plain list marker. Checked per-sibling, not per-list, so
+                // a checklist item can sit next to plain list items too.
+                const fromNeighbor =
+                  li.previousElementSibling?.classList.contains('checklist-item') ||
+                  li.nextElementSibling?.classList.contains('checklist-item')
+                if (fromNeighbor) li.classList.add('checklist-item')
+              }
+              // The browser also carries "checked" over from the item it
+              // split off from, which isn't wanted -- a fresh item should
+              // start unchecked. Only strip it while still empty, so this
+              // doesn't undo an intentional checked-then-cleared edit.
+              if (li?.classList.contains('checked') && !li.textContent?.trim()) {
+                li.classList.remove('checked')
+              }
+            }
+            onChange(editor?.innerHTML ?? '')
+            onWordCountChange?.(countWords(editor))
           }}
           onKeyDown={(e) => {
+            if (e.key === ' ' && handleMarkdownShortcut(e)) return
             if (handleEditorKeyDown(e)) {
               onChange(ref.current?.innerHTML ?? '')
+            }
+          }}
+          onMouseDown={(e) => {
+            const li = (e.target as HTMLElement).closest?.('li.checklist-item') as HTMLLIElement | null
+            if (!li || !ref.current?.contains(li)) return
+            const rect = li.getBoundingClientRect()
+            const emPx = parseFloat(getComputedStyle(li).fontSize) || 16
+            const zoneLeft = rect.left - 1.7 * emPx
+            const zoneRight = rect.left - 0.3 * emPx
+            if (e.clientX >= zoneLeft && e.clientX <= zoneRight) {
+              e.preventDefault()
+              li.classList.toggle('checked')
+              onChange(ref.current.innerHTML)
             }
           }}
           role="textbox"

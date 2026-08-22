@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { ChapterDetail } from '../api/types'
+import SharingSection from './SharingSection'
 
 export default function ChapterSettingsModal({
   chapter,
@@ -7,12 +8,18 @@ export default function ChapterSettingsModal({
   onClose,
   onSave,
   onDelete,
+  onLeave,
+  onToggleComplete,
+  canEdit = true,
 }: {
   chapter: ChapterDetail
   saving: boolean
   onClose: () => void
   onSave: (data: { name: string; description: string }) => void
   onDelete: () => void
+  onLeave?: () => void
+  onToggleComplete?: (completed: boolean) => void
+  canEdit?: boolean
 }) {
   const [name, setName] = useState(chapter.name)
   const [description, setDescription] = useState(chapter.description)
@@ -43,7 +50,7 @@ export default function ChapterSettingsModal({
   return (
     <div className="modal-overlay" role="presentation" onClick={onClose}>
       <div
-        className="modal-dialog"
+        className="modal-dialog wizard-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="chapter-modal-title"
@@ -64,6 +71,7 @@ export default function ChapterSettingsModal({
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            disabled={!canEdit}
           />
           <label htmlFor="chapter-modal-description" style={{ marginTop: '14px' }}>
             Description
@@ -73,27 +81,59 @@ export default function ChapterSettingsModal({
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
+            disabled={!canEdit}
           />
-          <button
-            type="submit"
-            className="chapter-action primary"
-            style={{ marginTop: '14px' }}
-            disabled={saving || !name.trim() || !changed}
-          >
-            Save
-          </button>
+          {canEdit && (
+            <button
+              type="submit"
+              className="chapter-action primary"
+              style={{ marginTop: '14px' }}
+              disabled={saving || !name.trim() || !changed}
+            >
+              Save
+            </button>
+          )}
         </form>
 
+        {onToggleComplete && (
+          <div className="modal-section">
+            <label className="chapter-complete-toggle">
+              <input
+                type="checkbox"
+                checked={chapter.completedAt !== null}
+                onChange={(e) => onToggleComplete(e.target.checked)}
+                disabled={!canEdit}
+              />
+              Complete
+            </label>
+          </div>
+        )}
+
         <div className="modal-section">
-          <a className="chapter-action" href={`/api/chapters/${chapter.id}/export.docx`}>
-            Export .docx
-          </a>
+          <label>Export</label>
+          <div className="modal-export-links">
+            <a className="chapter-action" href={`/api/chapters/${chapter.id}/export.docx`}>Export .docx</a>
+            <a className="chapter-action" href={`/api/chapters/${chapter.id}/export.rtf`}>Export .rtf</a>
+            <a className="chapter-action" href={`/api/chapters/${chapter.id}/export.txt`}>Export .txt</a>
+            <a className="chapter-action" href={`/api/chapters/${chapter.id}/export.md`}>Export .md</a>
+          </div>
         </div>
 
+        {canEdit && (
+          <SharingSection resourceType="chapter" resourceId={chapter.id} resourceNoun="chapter" collapsible />
+        )}
+
         <div className="modal-section chapter-modal-danger">
-          <button type="button" className="chapter-action danger" onClick={onDelete}>
-            Delete chapter
-          </button>
+          {onLeave && (
+            <button type="button" className="chapter-action danger" onClick={onLeave}>
+              Leave chapter
+            </button>
+          )}
+          {canEdit && (
+            <button type="button" className="chapter-action danger" onClick={onDelete}>
+              Delete chapter
+            </button>
+          )}
         </div>
       </div>
     </div>

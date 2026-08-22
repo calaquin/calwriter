@@ -380,9 +380,43 @@ body.chapter-view #chapter_area h1 {
 .modal-section textarea {
     resize: vertical;
 }
+.modal-section-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin: 0 0 6px;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--text-color);
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    opacity: 0.75;
+    text-align: left;
+}
+.modal-section-toggle:hover {
+    /* The global `button:hover` rule (element+pseudo-class) outranks this
+     * class-only selector's plain `background: none`, so it has to be
+     * restated here explicitly or hovering flashes the generic gray
+     * button background instead of just the opacity change. */
+    background: none;
+    opacity: 1;
+}
+.modal-section-toggle-icon {
+    font-size: 0.7rem;
+    opacity: 0.6;
+}
+.modal-export-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
 .chapter-modal-danger {
     display: flex;
     justify-content: flex-end;
+    gap: 8px;
 }
 .shortcuts-modal {
     width: min(100%, 480px);
@@ -723,6 +757,80 @@ body.chapter-view #chapter_area h1 {
     margin-bottom: 0.3em;
     text-indent: 0;
 }
+/* Nested list markers cycle every 3 levels, matching the .docx/.rtf/.txt
+   exports (see _list_marker in services.py) so what you see here matches
+   what you download. Also applied to the read-only version-history preview,
+   the only other place chapter content HTML is rendered. */
+#chapter_editor ol,
+.history-preview-content ol,
+#chapter_editor ol ol ol ol,
+.history-preview-content ol ol ol ol {
+    list-style-type: decimal;
+}
+#chapter_editor ol ol,
+.history-preview-content ol ol {
+    list-style-type: lower-alpha;
+}
+#chapter_editor ol ol ol,
+.history-preview-content ol ol ol {
+    list-style-type: lower-roman;
+}
+#chapter_editor ul,
+.history-preview-content ul,
+#chapter_editor ul ul ul ul,
+.history-preview-content ul ul ul ul {
+    list-style-type: disc;
+}
+#chapter_editor ul ul,
+.history-preview-content ul ul {
+    list-style-type: circle;
+}
+#chapter_editor ul ul ul,
+.history-preview-content ul ul ul {
+    list-style-type: square;
+}
+#chapter_editor li.checklist-item,
+.history-preview-content li.checklist-item {
+    /* Overrides the parent list's marker for just this item (list-style is
+       inherited but overridable per-<li>) -- a checklist item can sit right
+       alongside plain bullet/numbered siblings in the same list without
+       hiding their markers too. */
+    list-style: none;
+    position: relative;
+}
+#chapter_editor li.checklist-item {
+    cursor: pointer;
+}
+#chapter_editor li.checklist-item::before,
+.history-preview-content li.checklist-item::before {
+    content: '';
+    position: absolute;
+    top: 0.2em;
+    left: -1.5em;
+    width: 0.85em;
+    height: 0.85em;
+    box-sizing: border-box;
+    border: 1.5px solid var(--text-color);
+    border-radius: 3px;
+    opacity: 0.6;
+}
+#chapter_editor li.checklist-item.checked::before,
+.history-preview-content li.checklist-item.checked::before {
+    content: '\2713';
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--text-color);
+    color: var(--bg-color);
+    opacity: 1;
+    font-size: 0.65em;
+    line-height: 1;
+}
+#chapter_editor li.checklist-item.checked,
+.history-preview-content li.checklist-item.checked {
+    text-decoration: line-through;
+    opacity: 0.6;
+}
 #chapter_editor [style*="text-align: center"],
 #chapter_editor [style*="text-align: right"],
 #chapter_editor [align="center"],
@@ -881,6 +989,7 @@ body.chapter-view #chapter_area h1 {
 .icon-unindent::before { content: '\21e4'; }
 .icon-bulleted-list::before { content: '\2022\2261'; letter-spacing: 1px; }
 .icon-numbered-list::before { content: '1\2261'; letter-spacing: 1px; }
+.icon-checklist::before { content: '\2611\2261'; letter-spacing: 1px; }
 .icon-hr::before { content: '\2015'; }
 .icon-find::before { content: '\1F50D'; }
 .icon-undo::before { content: '\21ba'; }
@@ -1099,6 +1208,29 @@ body.chapter-view #chapter_area h1 {
     box-shadow: 0 10px 32px rgba(0, 0, 0, 0.3);
 }
 
+.sidebar-section-label {
+    margin: 14px 0 4px;
+    padding: 0 4px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    opacity: 0.5;
+}
+.tree .chapter-item.shared-item {
+    margin-left: 0;
+}
+.shared-item-book {
+    flex-shrink: 0;
+    margin-left: 6px;
+    max-width: 40%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0.5;
+    font-size: 0.72rem;
+}
+
 .app-title {
     margin: 0 0 0.5em 0;
     font-size: 2em;
@@ -1178,6 +1310,20 @@ body.chapter-view #chapter_area h1 {
     justify-content: flex-end;
     flex-wrap: wrap;
     padding-top: 4px;
+}
+/* The tree's own "⋯" trigger is invisible until its row is hovered (right
+ * for a dense sidebar list) -- always show it here, sized to match the
+ * other header buttons rather than the sidebar's compact icon-only size. */
+.folder-page-actions .tree-item-menu-trigger {
+    width: 38px;
+    height: 34px;
+    opacity: 1;
+    border: 1px solid rgba(127, 127, 127, 0.35);
+    border-radius: 6px;
+    font-size: 1.05rem;
+}
+.folder-page-actions .tree-item-menu-trigger:hover {
+    background: rgba(127, 127, 127, 0.12);
 }
 .folder-action {
     display: inline-flex;
@@ -1358,20 +1504,17 @@ body.chapter-view #chapter_area h1 {
     text-align: center;
     opacity: 0.55;
 }
-.folder-create-form,
 .share-form {
     display: flex;
-    align-items: stretch;
-    gap: 6px;
+    flex-direction: column;
+    gap: 8px;
 }
-.folder-create-form input,
 .share-form input {
-    width: min(100%, 340px);
+    width: 100%;
     max-width: none !important;
     background: var(--bg-color);
     color: var(--text-color);
 }
-.folder-create-form button,
 .share-form button {
     border-color: var(--text-color);
     background: var(--text-color);
@@ -1379,7 +1522,6 @@ body.chapter-view #chapter_area h1 {
     font-size: 0.85rem;
     font-weight: 600;
 }
-.folder-create-form button:hover,
 .share-form button:hover {
     background: var(--text-color);
     color: var(--bg-color);
@@ -1397,15 +1539,6 @@ body.chapter-view #chapter_area h1 {
     }
     .folder-page-actions {
         justify-content: flex-start;
-    }
-    .folder-create-form,
-    .share-form {
-        align-items: stretch;
-        flex-direction: column;
-    }
-    .folder-create-form input,
-    .share-form input {
-        width: 100%;
     }
 }
 
@@ -1577,29 +1710,6 @@ body.chapter-view #chapter_area h1 {
     font-size: 0.8rem;
     opacity: 0.55;
 }
-.home-create-form {
-    display: flex;
-    align-items: stretch;
-    gap: 6px;
-}
-.home-create-form input {
-    width: min(100%, 340px);
-    max-width: none !important;
-    background: var(--bg-color);
-    color: var(--text-color);
-}
-.home-create-form button {
-    border-color: var(--text-color);
-    background: var(--text-color);
-    color: var(--bg-color);
-    font-size: 0.85rem;
-    font-weight: 600;
-}
-.home-create-form button:hover {
-    background: var(--text-color);
-    color: var(--bg-color);
-    opacity: 0.86;
-}
 .database-tools-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1651,13 +1761,234 @@ body.chapter-view #chapter_area h1 {
     .database-tools-grid {
         grid-template-columns: 1fr;
     }
-    .home-create-form {
-        flex-direction: column;
-    }
-    .home-create-form input {
-        width: 100%;
-    }
 }
+
+/* stats page */
+.stats-summary-tile {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 20px;
+    padding: 14px 20px;
+    border: 1px solid rgba(127, 127, 127, 0.22);
+    border-radius: 8px;
+}
+.stats-summary-value {
+    font-size: 1.8rem;
+    font-weight: 700;
+    line-height: 1.15;
+}
+.stats-summary-label {
+    font-size: 0.78rem;
+    opacity: 0.55;
+}
+.stats-days-select {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-shrink: 0;
+    font-size: 0.82rem;
+    opacity: 0.75;
+}
+.stats-days-select select {
+    background: var(--bg-color);
+    color: var(--text-color);
+}
+.stats-chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    height: 220px;
+    padding: 12px 4px 0;
+    overflow-x: auto;
+}
+.stats-bar-column {
+    display: flex;
+    flex: 1 0 34px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 34px;
+    height: 100%;
+}
+.stats-bar-count {
+    margin-bottom: 4px;
+    font-size: 0.72rem;
+    opacity: 0.55;
+}
+.stats-bar {
+    width: 100%;
+    max-width: 30px;
+    border-radius: 4px 4px 0 0;
+    background: var(--text-color);
+    opacity: 0.75;
+    transition: opacity 0.15s;
+}
+.stats-bar-column:hover .stats-bar {
+    opacity: 1;
+}
+.stats-bar-day {
+    margin-top: 6px;
+    font-size: 0.72rem;
+    white-space: nowrap;
+    opacity: 0.55;
+}
+
+/* chapter settings: complete toggle */
+.chapter-complete-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+/* goals page */
+.goal-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.goal-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    border: 1px solid rgba(127, 127, 127, 0.24);
+    border-radius: 8px;
+}
+.goal-card-main {
+    flex: 1;
+    min-width: 0;
+}
+.goal-card-actions {
+    display: flex;
+    flex-shrink: 0;
+    gap: 6px;
+}
+.goal-card-name {
+    margin: 0 0 4px;
+    font-size: 1rem;
+    font-weight: 650;
+}
+.goal-card-heading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.goal-card-crumb {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+.goal-card-crumb-sep {
+    opacity: 0.4;
+}
+.goal-card-badge {
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: rgba(127, 127, 127, 0.16);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    opacity: 0.7;
+}
+.goal-card-desc {
+    margin: 4px 0 8px;
+    font-size: 0.85rem;
+    opacity: 0.65;
+}
+.goal-progress-track {
+    width: 100%;
+    height: 8px;
+    overflow: hidden;
+    border-radius: 4px;
+    background: rgba(127, 127, 127, 0.16);
+}
+.goal-progress-fill {
+    height: 100%;
+    border-radius: 4px;
+    background: var(--text-color);
+    opacity: 0.75;
+    transition: width 0.2s;
+}
+.goal-progress-fill.achieved {
+    background: #2f9e5c;
+    opacity: 1;
+}
+.goal-progress-label {
+    display: inline-block;
+    margin-top: 6px;
+    font-size: 0.78rem;
+    opacity: 0.6;
+}
+.goal-pace-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+}
+.goal-pace-badge {
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: rgba(127, 127, 127, 0.16);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    opacity: 0.75;
+}
+.goal-pace-badge.on-track {
+    background: rgba(47, 158, 92, 0.16);
+    color: #2f9e5c;
+    opacity: 1;
+}
+.goal-pace-badge.behind {
+    background: rgba(179, 58, 58, 0.14);
+    color: #b33a3a;
+    opacity: 1;
+}
+.goal-pace-stat {
+    font-size: 0.78rem;
+    opacity: 0.6;
+}
+.goal-card-hidden {
+    opacity: 0.6;
+}
+.goals-hidden-toggle {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid rgba(127, 127, 127, 0.18);
+}
+.stats-bar.goal-history-bar.achieved {
+    background: #2f9e5c;
+    opacity: 1;
+}
+.goal-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 20px 0 0;
+    padding: 0;
+    list-style: none;
+}
+.goal-history-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 12px;
+    border: 1px solid rgba(127, 127, 127, 0.2);
+    border-radius: 6px;
+    font-size: 0.85rem;
+}
+
 
 /* settings page */
 .settings-page {
@@ -2045,6 +2376,9 @@ body.dark .account-type-badge.admin {
     font-weight: 650;
 }
 .book-settings-form input[type="text"],
+.book-settings-form input[type="number"],
+.book-settings-form input[type="date"],
+.book-settings-form select,
 .book-settings-form textarea {
     width: 100%;
     max-width: none;
@@ -2056,19 +2390,83 @@ body.dark .account-type-badge.admin {
     color: var(--text-color);
     font: inherit;
 }
-.book-settings-form input[type="text"] {
+.book-settings-form input[type="text"],
+.book-settings-form input[type="number"],
+.book-settings-form input[type="date"],
+.book-settings-form select {
     height: 38px;
 }
 .book-settings-form textarea {
     resize: vertical;
 }
 .book-settings-form input[type="text"]:focus,
+.book-settings-form input[type="number"]:focus,
+.book-settings-form input[type="date"]:focus,
+.book-settings-form select:focus,
 .book-settings-form textarea:focus {
     outline: 2px solid rgba(88, 123, 190, 0.4);
     outline-offset: 1px;
 }
+.book-settings-form .goal-modal-date-row {
+    display: flex;
+    gap: 12px;
+}
+.book-settings-form .goal-modal-date-row > label {
+    flex: 1;
+}
+.book-settings-form .goal-modal-resource {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.book-settings-form .goal-modal-resource span {
+    font-size: 0.78rem;
+    font-weight: 650;
+    opacity: 0.6;
+}
+.book-settings-form .goal-modal-resource strong {
+    font-size: 0.95rem;
+}
 .book-settings-form .color-setting {
     margin-top: 2px;
+}
+.wizard-modal {
+    width: min(100%, 480px);
+}
+.wizard-extras {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.wizard-extras > span {
+    font-size: 0.78rem;
+    font-weight: 650;
+}
+.wizard-extras-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.wizard-extra-chip {
+    min-height: 34px;
+    padding: 6px 13px;
+    border: 1px solid rgba(127, 127, 127, 0.35);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-color);
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+.wizard-extra-chip:hover {
+    background: rgba(127, 127, 127, 0.12);
+}
+.wizard-extra-chip.active {
+    border-color: var(--text-color);
+    background: var(--text-color);
+    color: var(--bg-color);
+}
+.wizard-extra-chip.active:hover {
+    opacity: 0.86;
 }
 .password-form {
     display: flex;
@@ -2157,6 +2555,24 @@ body.dark .settings-message.error {
 }
 .settings-form-actions .settings-secondary-action:hover {
     background: rgba(127, 127, 127, 0.12);
+}
+.settings-form-actions .settings-primary-action.danger {
+    border-color: #b33a3a;
+    background: #b33a3a;
+    color: #fff;
+}
+.settings-form-actions .settings-primary-action.danger:hover {
+    background: #9c2f2f;
+    opacity: 1;
+}
+.settings-form-actions .settings-primary-action:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+.confirm-modal-message {
+    margin: 0 0 4px;
+    line-height: 1.5;
+    opacity: 0.85;
 }
 .settings-leave-overlay {
     position: fixed;

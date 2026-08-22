@@ -1,10 +1,9 @@
-import { useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useRef, useState, type ChangeEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   useBooks,
   useSettings,
   useUpdateSettings,
-  useCreateBook,
   useReorderBooks,
   useExportDatabase,
   useImportDatabase,
@@ -13,19 +12,18 @@ import { useDragReorder } from '../hooks/useDragReorder'
 import { EMPTY_ARRAY } from '../api/constants'
 import { ApiError } from '../api/client'
 import { useTabs } from '../context/TabsContext'
+import CreateBookModal from '../components/CreateBookModal'
 
 export default function HomePage() {
   const { data: books, isLoading } = useBooks()
   const { data: settings } = useSettings()
   const updateSettings = useUpdateSettings()
-  const createBook = useCreateBook()
   const reorderBooks = useReorderBooks()
   const exportDb = useExportDatabase()
   const importDb = useImportDatabase()
   const navigate = useNavigate()
   const { closeTabsForBook } = useTabs()
-  const [name, setName] = useState('')
-  const [formError, setFormError] = useState<string | null>(null)
+  const [showCreate, setShowCreate] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { order, onDragStart, onDragOver, onDrop } = useDragReorder(books ?? EMPTY_ARRAY, (ids) => reorderBooks.mutate(ids))
@@ -50,18 +48,6 @@ export default function HomePage() {
     }
   }
 
-  async function handleCreate(e: FormEvent) {
-    e.preventDefault()
-    setFormError(null)
-    try {
-      const book = await createBook.mutateAsync({ name })
-      setName('')
-      navigate(`/folders/${book.id}`)
-    } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : 'Failed to create book')
-    }
-  }
-
   return (
     <div className="home-page">
       <header className="home-page-header">
@@ -70,8 +56,22 @@ export default function HomePage() {
           <h1>Books</h1>
           <p>Pick up where you left off or start something new.</p>
         </div>
-        <Link className="home-wizard-action" to="/wizard">Create with wizard</Link>
+        <div className="folder-page-actions">
+          <Link className="folder-action" to="/goals">Goals</Link>
+          <Link className="folder-action" to="/stats">Stats</Link>
+          <button type="button" className="home-wizard-action" onClick={() => setShowCreate(true)}>New book</button>
+        </div>
       </header>
+
+      {showCreate && (
+        <CreateBookModal
+          onClose={() => setShowCreate(false)}
+          onCreated={(book) => {
+            setShowCreate(false)
+            navigate(`/folders/${book.id}`)
+          }}
+        />
+      )}
 
       <section className="home-library-section">
         <div className="home-section-header">
@@ -117,25 +117,9 @@ export default function HomePage() {
         {!isLoading && books && books.length === 0 && (
           <div className="home-empty-state">
             <strong>No books yet</strong>
-            <span>Create a blank book below or use the guided setup.</span>
+            <span>Create your first book to get started.</span>
           </div>
         )}
-        {formError && (
-          <ul className="flashes">
-            <li>{formError}</li>
-          </ul>
-        )}
-        <form onSubmit={handleCreate} className="home-create-form">
-          <input
-            type="text"
-            aria-label="New book title"
-            placeholder="New book title"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-          <button type="submit" disabled={createBook.isPending}>Create book</button>
-        </form>
       </section>
 
       <section className="home-tools-section">

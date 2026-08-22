@@ -1,16 +1,23 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { FolderDetail } from '../api/types'
+import SharingSection from './SharingSection'
 
 export default function FolderSettingsModal({
   folder,
   saving,
   onClose,
   onSave,
+  onDelete,
+  onLeave,
+  canEdit = true,
 }: {
   folder: FolderDetail
   saving: boolean
   onClose: () => void
   onSave: (data: { name: string; description: string }) => void
+  onDelete: () => void
+  onLeave?: () => void
+  canEdit?: boolean
 }) {
   const [name, setName] = useState(folder.name)
   const [description, setDescription] = useState(folder.description)
@@ -41,7 +48,7 @@ export default function FolderSettingsModal({
   return (
     <div className="modal-overlay" role="presentation" onClick={onClose}>
       <div
-        className="modal-dialog"
+        className="modal-dialog wizard-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="folder-modal-title"
@@ -62,6 +69,7 @@ export default function FolderSettingsModal({
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            disabled={!canEdit}
           />
           <label htmlFor="folder-modal-description" style={{ marginTop: '14px' }}>
             Description
@@ -71,16 +79,46 @@ export default function FolderSettingsModal({
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
+            disabled={!canEdit}
           />
-          <button
-            type="submit"
-            className="folder-action primary"
-            style={{ marginTop: '14px' }}
-            disabled={saving || !name.trim() || !changed}
-          >
-            Save
-          </button>
+          {canEdit && (
+            <button
+              type="submit"
+              className="folder-action primary"
+              style={{ marginTop: '14px' }}
+              disabled={saving || !name.trim() || !changed}
+            >
+              Save
+            </button>
+          )}
         </form>
+
+        <div className="modal-section">
+          <label>Export</label>
+          <div className="modal-export-links">
+            <a className="folder-action" href={`/api/folders/${folder.id}/export.docx`}>Export .docx</a>
+            <a className="folder-action" href={`/api/folders/${folder.id}/export.rtf`}>Export .rtf</a>
+            <a className="folder-action" href={`/api/folders/${folder.id}/export.txt`}>Export .txt</a>
+            <a className="folder-action" href={`/api/folders/${folder.id}/export.md`}>Export .md</a>
+          </div>
+        </div>
+
+        {canEdit && (
+          <SharingSection resourceType="folder" resourceId={folder.id} resourceNoun="sub-folder" collapsible />
+        )}
+
+        <div className="modal-section chapter-modal-danger">
+          {onLeave && (
+            <button type="button" className="folder-action danger" onClick={onLeave}>
+              Leave sub-folder
+            </button>
+          )}
+          {canEdit && (
+            <button type="button" className="folder-action danger" onClick={onDelete}>
+              Delete sub-folder
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )
