@@ -2,17 +2,23 @@ import { useState, type DragEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   useFolder,
+  useFolderTreeIds,
   useReorderFolderChildren,
   useMoveChapter,
   useUpdateFolder,
   useUpdateBook,
   useRenameChapter,
+  useCreateFolder,
+  useCreateChapter,
   useSettings,
   useUpdateSettings,
+  useOpenAll,
 } from '../api/hooks'
 import { useTabs } from '../context/TabsContext'
 import { triggerDownload } from '../api/client'
-import TreeItemMenu from './TreeItemMenu'
+import TreeItemMenu, { type MenuAction } from './TreeItemMenu'
+import CreateItemModal from './CreateItemModal'
+import RenameModal from './RenameModal'
 import type { Role } from '../api/types'
 
 const CHAPTER_DRAG_TYPE = 'application/x-calwriter-chapter'
@@ -41,6 +47,8 @@ export default function FolderTreeNode({
   color,
   closedFolderIds,
   closedChapterIds,
+  isBook = level === 0,
+  extraMenuActions,
 }: {
   folderId: number
   name: string
@@ -50,12 +58,23 @@ export default function FolderTreeNode({
   color?: string
   closedFolderIds: ReadonlySet<number>
   closedChapterIds: ReadonlySet<number>
+  /** Defaults to `level === 0`. Pass explicitly for a folder rendered as a
+   * top-level sidebar entry despite having a real (inaccessible) parent --
+   * a sub-folder shared directly with the user, for instance -- so it's
+   * still treated as an ordinary sub-folder rather than a book. */
+  isBook?: boolean
+  /** Extra rows appended to this node's own three-dot menu -- e.g. "Leave"
+   * on a "Shared with me" sidebar entry. Not passed down to children. */
+  extraMenuActions?: MenuAction[]
 }) {
   const [expanded, setExpanded] = useState(level === 0)
+  const [creating, setCreating] = useState<'folder' | 'chapter' | null>(null)
+  const [renamingFolder, setRenamingFolder] = useState(false)
+  const [renamingChapter, setRenamingChapter] = useState<{ id: number; name: string } | null>(null)
   const { data } = useFolder(expanded ? folderId : undefined)
+  const { data: treeIds } = useFolderTreeIds(folderId)
   const hasChildren = data ? data.folders.length > 0 || data.chapters.length > 0 : true
   const canEdit = role !== 'viewer'
-  const isBook = level === 0
   const navigate = useNavigate()
 
   const reorder = useReorderFolderChildren(folderId)
@@ -63,18 +82,18 @@ export default function FolderTreeNode({
   const updateFolder = useUpdateFolder(folderId, parentId)
   const updateBook = useUpdateBook(folderId)
   const renameChapterMutation = useRenameChapter(folderId)
+  const createFolderMutation = useCreateFolder(folderId)
+  const createChapterMutation = useCreateChapter(folderId)
   const { data: settings } = useSettings()
   const updateSettings = useUpdateSettings()
+  const openAll = useOpenAll()
   const { closeTab, closeTabsForBook } = useTabs()
 
-  function renameFolder() {
-    const nextName = window.prompt(isBook ? 'Rename book' : 'Rename sub-folder', name)
-    const trimmed = nextName?.trim()
-    if (!trimmed || trimmed === name) return
+  function handleRenameFolder(nextName: string) {
     if (isBook) {
-      updateBook.mutate({ name: trimmed })
+      updateBook.mutate({ name: nextName }, { onSuccess: () => setRenamingFolder(false) })
     } else {
-      updateFolder.mutate({ name: trimmed })
+      updateFolder.mutate({ name: nextName }, { onSuccess: () => setRenamingFolder(false) })
     }
   }
 
@@ -93,11 +112,31 @@ export default function FolderTreeNode({
     }
   }
 
-  function renameChapter(chapterId: number, chapterName: string) {
-    const nextName = window.prompt('Rename chapter', chapterName)
-    const trimmed = nextName?.trim()
-    if (!trimmed || trimmed === chapterName) return
-    renameChapterMutation.mutate({ chapterId, name: trimmed })
+  function handleCreateSubfolder(data: { name: string; description: string }) {
+    createFolderMutation.mutate(data, {
+      onSuccess: () => {
+        setExpanded(true)
+        setCreating(null)
+      },
+    })
+  }
+
+  function handleCreateChapter(data: { name: string; description: string }) {
+    createChapterMutation.mutate(data, {
+      onSuccess: (chapter) => {
+        setExpanded(true)
+        setCreating(null)
+        navigate(`/chapters/${chapter.id}`)
+      },
+    })
+  }
+
+  function handleRenameChapter(nextName: string) {
+    if (!renamingChapter) return
+    renameChapterMutation.mutate(
+      { chapterId: renamingChapter.id, name: nextName },
+      { onSuccess: () => setRenamingChapter(null) },
+    )
   }
 
   function toggleChapterOpen(chapterId: number) {
@@ -187,6 +226,14 @@ export default function FolderTreeNode({
     { label: 'Download as .txt', onClick: () => (kind === 'folder' ? downloadFolder('txt') : downloadChapter(kind, 'txt')) },
     { label: 'Download as .md', onClick: () => (kind === 'folder' ? downloadFolder('md') : downloadChapter(kind, 'md')) },
   ]
+  const hasClosedDescendants =
+    !!treeIds &&
+    (treeIds.folderIds.some((fid) => closedFolderIds.has(fid)) || treeIds.chapterIds.some((cid) => closedChapterIds.has(cid)))
+  const trailingMenuActions: MenuAction[] = [
+    ...(hasClosedDescendants ? [{ label: 'Open all', onClick: () => openAll.mutate(folderId) }] : []),
+    { label: folderIsOpen ? 'Close' : 'Open', onClick: toggleFolderOpen },
+  ]
+  trailingMenuActions[0] = { ...trailingMenuActions[0], separatorBefore: true }
 
   return (
     <li className={`tree-item collapsible${level === 0 ? ' book-root' : ''}${expanded ? '' : ' collapsed'}`}>
@@ -204,17 +251,58 @@ export default function FolderTreeNode({
         </Link>
         <TreeItemMenu
           actions={[
-            ...(canEdit ? [{ label: 'Rename', onClick: renameFolder }] : []),
+            ...(canEdit ? [{ label: 'Rename', onClick: () => setRenamingFolder(true) }] : []),
+            ...(canEdit ? [{ label: 'New chapter', onClick: () => setCreating('chapter') }] : []),
+            ...(canEdit ? [{ label: 'New sub-folder', onClick: () => setCreating('folder') }] : []),
             ...(isBook
               ? canEdit
                 ? [{ label: 'Settings', onClick: () => navigate(`/folders/${folderId}/settings`) }]
                 : []
               : [{ label: 'Settings', onClick: () => navigate(`/folders/${folderId}?settings=1`) }]),
+            { label: 'Stats', onClick: () => navigate(`/folders/${folderId}/stats`) },
+            { label: 'Goals', onClick: () => navigate(`/goals?resourceType=folder&resourceId=${folderId}`) },
             { label: 'Download', submenu: downloadSubmenu('folder') },
-            { label: folderIsOpen ? 'Close' : 'Open', onClick: toggleFolderOpen, separatorBefore: true },
+            ...trailingMenuActions,
+            ...(extraMenuActions ?? []),
           ]}
         />
       </div>
+      {creating === 'folder' && (
+        <CreateItemModal
+          title="New sub-folder"
+          nameLabel="Name"
+          saving={createFolderMutation.isPending}
+          onClose={() => setCreating(null)}
+          onCreate={handleCreateSubfolder}
+        />
+      )}
+      {creating === 'chapter' && (
+        <CreateItemModal
+          title="New chapter"
+          nameLabel="Name"
+          saving={createChapterMutation.isPending}
+          onClose={() => setCreating(null)}
+          onCreate={handleCreateChapter}
+        />
+      )}
+      {renamingFolder && (
+        <RenameModal
+          title={isBook ? 'Rename book' : 'Rename sub-folder'}
+          initialValue={name}
+          saving={isBook ? updateBook.isPending : updateFolder.isPending}
+          onClose={() => setRenamingFolder(false)}
+          onSave={handleRenameFolder}
+        />
+      )}
+      {renamingChapter && (
+        <RenameModal
+          title="Rename chapter"
+          initialValue={renamingChapter.name}
+          saving={renameChapterMutation.isPending}
+          onClose={() => setRenamingChapter(null)}
+          onSave={handleRenameChapter}
+        />
+      )}
       {expanded && data && (
         <ul>
           {data.folders.filter((f) => !closedFolderIds.has(f.id)).map((f) => (
@@ -244,8 +332,10 @@ export default function FolderTreeNode({
               <Link to={`/chapters/${c.id}`}>{c.name}</Link>
               <TreeItemMenu
                 actions={[
-                  ...(canEdit ? [{ label: 'Rename', onClick: () => renameChapter(c.id, c.name) }] : []),
+                  ...(canEdit ? [{ label: 'Rename', onClick: () => setRenamingChapter({ id: c.id, name: c.name }) }] : []),
                   { label: 'Settings', onClick: () => navigate(`/chapters/${c.id}?settings=1`) },
+                  { label: 'Stats', onClick: () => navigate(`/chapters/${c.id}/stats`) },
+                  { label: 'Goals', onClick: () => navigate(`/goals?resourceType=chapter&resourceId=${c.id}`) },
                   { label: 'Download', submenu: downloadSubmenu(c.id) },
                   {
                     label: closedChapterIds.has(c.id) ? 'Open' : 'Close',

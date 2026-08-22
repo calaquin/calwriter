@@ -1,7 +1,8 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   useFolder,
+  useFolderTreeIds,
   useBook,
   useUpdateFolder,
   useDeleteFolder,
@@ -10,27 +11,33 @@ import {
   useReorderFolderChildren,
   useSettings,
   useUpdateSettings,
+  useLeaveShare,
+  useOpenAll,
 } from '../api/hooks'
 import { useDragReorder } from '../hooks/useDragReorder'
 import { EMPTY_ARRAY } from '../api/constants'
-import { ApiError } from '../api/client'
-import CollaboratorsPanel from '../components/CollaboratorsPanel'
+import { useAuth } from '../context/AuthContext'
+import { triggerDownload } from '../api/client'
 import FolderSettingsModal from '../components/FolderSettingsModal'
+import CreateItemModal from '../components/CreateItemModal'
+import ConfirmModal from '../components/ConfirmModal'
+import TreeItemMenu, { type MenuAction } from '../components/TreeItemMenu'
 
 export default function FolderPage() {
   const { folderId } = useParams()
   const id = folderId ? Number(folderId) : undefined
   const { data: folder, isLoading, error } = useFolder(id)
+  const { data: treeIds } = useFolderTreeIds(id)
   const { data: settings } = useSettings()
   const isBook = folder?.parentId === null
   const { data: book } = useBook(isBook ? id : undefined)
+  const { user } = useAuth()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const [newSubfolderName, setNewSubfolderName] = useState('')
-  const [newChapterName, setNewChapterName] = useState('')
   const [showSettings, setShowSettings] = useState(false)
-  const [formError, setFormError] = useState<string | null>(null)
+  const [creating, setCreating] = useState<'folder' | 'chapter' | null>(null)
+  const [confirmAction, setConfirmAction] = useState<'delete' | 'leave' | null>(null)
 
   useEffect(() => {
     if (searchParams.get('settings') !== '1') return
@@ -47,6 +54,8 @@ export default function FolderPage() {
   const createChapter = useCreateChapter(id ?? 0)
   const reorder = useReorderFolderChildren(id ?? 0)
   const updateSettings = useUpdateSettings()
+  const leaveShare = useLeaveShare()
+  const openAll = useOpenAll()
 
   const subfolderDrag = useDragReorder(folder?.folders ?? EMPTY_ARRAY, (order) => reorder.mutate({ type: 'folder', order }))
   const chapterDrag = useDragReorder(folder?.chapters ?? EMPTY_ARRAY, (order) => reorder.mutate({ type: 'chapter', order }))
@@ -56,41 +65,47 @@ export default function FolderPage() {
   if (isLoading) return <p>Loading...</p>
   if (error || !folder) return <p>Not found, or you don't have access to it.</p>
 
-  async function handleCreateSubfolder(e: FormEvent) {
-    e.preventDefault()
-    setFormError(null)
-    try {
-      await createFolder.mutateAsync({ name: newSubfolderName })
-      setNewSubfolderName('')
-    } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : 'Failed to create folder')
-    }
+  function handleCreateSubfolder(data: { name: string; description: string }) {
+    createFolder.mutate(data, { onSuccess: () => setCreating(null) })
   }
 
-  async function handleCreateChapter(e: FormEvent) {
-    e.preventDefault()
-    setFormError(null)
-    try {
-      const chapter = await createChapter.mutateAsync({ name: newChapterName })
-      setNewChapterName('')
-      navigate(`/chapters/${chapter.id}`)
-    } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : 'Failed to create chapter')
-    }
+  function handleCreateChapter(data: { name: string; description: string }) {
+    createChapter.mutate(data, {
+      onSuccess: (chapter) => {
+        setCreating(null)
+        navigate(`/chapters/${chapter.id}`)
+      },
+    })
   }
 
   function handleSaveSettings(data: { name: string; description: string }) {
     update.mutate(data, { onSuccess: () => setShowSettings(false) })
   }
 
-  function handleDelete() {
-    const label = isBook ? 'book' : 'sub-folder'
-    if (window.confirm(`Delete this ${label} "${folder!.name}"? This cannot be undone.`)) {
-      const parentId = folder!.parentId
-      del.mutate(folder!.id, {
-        onSuccess: () => navigate(parentId ? `/folders/${parentId}` : '/'),
-      })
-    }
+  function confirmDelete() {
+    const parentId = folder!.parentId
+    del.mutate(folder!.id, {
+      onSuccess: () => {
+        // FolderPage doesn't unmount across this navigation (same route,
+        // different :folderId), so confirmAction would otherwise carry over
+        // and reopen this modal for whatever page we just landed on.
+        setConfirmAction(null)
+        navigate(parentId ? `/folders/${parentId}` : '/')
+      },
+    })
+  }
+
+  function confirmLeave() {
+    if (!user) return
+    leaveShare.mutate(
+      { resourceType: 'folder', resourceId: folder!.id, userId: user.id },
+      {
+        onSuccess: () => {
+          setConfirmAction(null)
+          navigate('/')
+        },
+      },
+    )
   }
 
   function toggleSubfolderOpen(folderId: number, isOpen: boolean) {
@@ -107,32 +122,59 @@ export default function FolderPage() {
     })
   }
 
+  const canEditSettings = isBook ? book?.role !== 'viewer' : folder.role !== 'viewer' || folder.directShare
+  const canDelete = isBook ? book?.role === 'owner' : folder.role !== 'viewer'
+  const hasClosedDescendants =
+    !!treeIds &&
+    (treeIds.folderIds.some((fid) => closedFolderIds.has(fid)) ||
+      treeIds.chapterIds.some((cid) => closedChapterIds.has(cid)))
+
+  const trailingMenuActions: MenuAction[] = [
+    ...(hasClosedDescendants ? [{ label: 'Open all', onClick: () => openAll.mutate(folder.id) }] : []),
+    ...(canDelete ? [{ label: 'Delete', onClick: () => setConfirmAction('delete'), danger: true }] : []),
+  ]
+  if (trailingMenuActions.length > 0) trailingMenuActions[0] = { ...trailingMenuActions[0], separatorBefore: true }
+
   return (
     <div className="folder-page">
       <header className="folder-page-header">
         <div className="folder-page-heading">
           <div className="folder-eyebrow">
-            {!isBook && folder.parentId ? <Link to={`/folders/${folder.parentId}`}>&larr; Parent folder</Link> : 'Book'}
+            {isBook
+              ? 'Book'
+              : folder.parentAccessible
+                ? <Link to={`/folders/${folder.parentId}`}>&larr; Parent folder</Link>
+                : 'Sub-folder'}
           </div>
           <h1>{folder.name}</h1>
           {folder.author && <p className="folder-author">by {folder.author}</p>}
           {folder.description && <p className="folder-description">{folder.description}</p>}
         </div>
         <div className="folder-page-actions" aria-label={`${isBook ? 'Book' : 'Sub-folder'} actions`}>
-          {isBook ? (
-            book?.role !== 'viewer' && (
-              <Link className="folder-action" to={`/folders/${folder.id}/settings`}>Settings</Link>
-            )
-          ) : (
-            <button type="button" className="folder-action" onClick={() => setShowSettings(true)}>Settings</button>
-          )}
-          {isBook && <Link className="folder-action" to={`/folders/${folder.id}/stats`}>Stats</Link>}
-          {isBook && <a className="folder-action" href={`/api/books/${folder.bookId}/export.docx`}>Export .docx</a>}
-          {(!isBook || book?.role === 'owner') && (
-            <button type="button" className="folder-action danger" onClick={handleDelete}>
-              Delete
-            </button>
-          )}
+          <TreeItemMenu
+            actions={[
+              ...(canEditSettings
+                ? [
+                    {
+                      label: 'Settings',
+                      onClick: () => (isBook ? navigate(`/folders/${folder.id}/settings`) : setShowSettings(true)),
+                    },
+                  ]
+                : []),
+              { label: 'Stats', onClick: () => navigate(`/folders/${folder.id}/stats`) },
+              { label: 'Goals', onClick: () => navigate(`/goals?resourceType=folder&resourceId=${folder.id}`) },
+              {
+                label: 'Download',
+                submenu: [
+                  { label: 'Download as .docx', onClick: () => triggerDownload(`/folders/${folder.id}/export.docx`) },
+                  { label: 'Download as .rtf', onClick: () => triggerDownload(`/folders/${folder.id}/export.rtf`) },
+                  { label: 'Download as .txt', onClick: () => triggerDownload(`/folders/${folder.id}/export.txt`) },
+                  { label: 'Download as .md', onClick: () => triggerDownload(`/folders/${folder.id}/export.md`) },
+                ],
+              },
+              ...trailingMenuActions,
+            ]}
+          />
         </div>
       </header>
 
@@ -142,13 +184,52 @@ export default function FolderPage() {
           saving={update.isPending}
           onClose={() => setShowSettings(false)}
           onSave={handleSaveSettings}
+          onDelete={() => setConfirmAction('delete')}
+          onLeave={folder.directShare ? () => setConfirmAction('leave') : undefined}
+          canEdit={folder.role !== 'viewer'}
         />
       )}
 
-      {formError && (
-        <ul className="flashes">
-          <li>{formError}</li>
-        </ul>
+      {confirmAction === 'delete' && (
+        <ConfirmModal
+          title={`Delete ${isBook ? 'book' : 'sub-folder'}`}
+          message={`Delete this ${isBook ? 'book' : 'sub-folder'} "${folder.name}"? This cannot be undone.`}
+          confirmLabel="Delete"
+          pending={del.isPending}
+          onConfirm={confirmDelete}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
+
+      {confirmAction === 'leave' && (
+        <ConfirmModal
+          title={`Leave ${isBook ? 'book' : 'sub-folder'}`}
+          message={`Leave this ${isBook ? 'book' : 'sub-folder'} "${folder.name}"? You'll lose access unless re-shared.`}
+          confirmLabel="Leave"
+          pending={leaveShare.isPending}
+          onConfirm={confirmLeave}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
+
+      {creating === 'folder' && (
+        <CreateItemModal
+          title="New sub-folder"
+          nameLabel="Name"
+          saving={createFolder.isPending}
+          onClose={() => setCreating(null)}
+          onCreate={handleCreateSubfolder}
+        />
+      )}
+
+      {creating === 'chapter' && (
+        <CreateItemModal
+          title="New chapter"
+          nameLabel="Name"
+          saving={createChapter.isPending}
+          onClose={() => setCreating(null)}
+          onCreate={handleCreateChapter}
+        />
       )}
 
       <section className="folder-section">
@@ -187,17 +268,9 @@ export default function FolderPage() {
         ) : (
           <p className="folder-empty-state">No sub-folders yet.</p>
         )}
-        <form onSubmit={handleCreateSubfolder} className="folder-create-form">
-          <input
-            type="text"
-            placeholder="New sub-folder name"
-            aria-label="New sub-folder name"
-            value={newSubfolderName}
-            onChange={(e) => setNewSubfolderName(e.target.value)}
-            required
-          />
-          <button type="submit" disabled={createFolder.isPending}>Add sub-folder</button>
-        </form>
+        {folder.role !== 'viewer' && (
+          <button type="button" className="folder-action" onClick={() => setCreating('folder')}>Add sub-folder</button>
+        )}
       </section>
 
       <section className="folder-section">
@@ -236,20 +309,10 @@ export default function FolderPage() {
         ) : (
           <p className="folder-empty-state">No chapters yet.</p>
         )}
-        <form onSubmit={handleCreateChapter} className="folder-create-form">
-          <input
-            type="text"
-            placeholder="New chapter name"
-            aria-label="New chapter name"
-            value={newChapterName}
-            onChange={(e) => setNewChapterName(e.target.value)}
-            required
-          />
-          <button type="submit" disabled={createChapter.isPending}>Add chapter</button>
-        </form>
+        {folder.role !== 'viewer' && (
+          <button type="button" className="folder-action" onClick={() => setCreating('chapter')}>Add chapter</button>
+        )}
       </section>
-
-      {isBook && book?.role === 'owner' && <CollaboratorsPanel bookId={folder.id} />}
     </div>
   )
 }

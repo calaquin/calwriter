@@ -7,15 +7,18 @@ import {
   useDeleteChapter,
   useChapterPresence,
   useChapterPresenceHeartbeat,
+  useLeaveShare,
 } from '../api/hooks'
 import { ApiError } from '../api/client'
 import { useDebouncedCallback } from '../hooks/useDebouncedCallback'
 import { useBodyClass } from '../hooks/useBodyClass'
 import { useTabs } from '../context/TabsContext'
+import { useAuth } from '../context/AuthContext'
 import ChapterEditor from '../components/ChapterEditor'
 import ChapterTabs from '../components/ChapterTabs'
 import ChapterSettingsModal from '../components/ChapterSettingsModal'
 import ChapterHistoryModal from '../components/ChapterHistoryModal'
+import ConfirmModal from '../components/ConfirmModal'
 
 const NOTES_COLLAPSED_KEY = 'calwriter:notesCollapsed'
 const PRESENCE_HEARTBEAT_MS = 20000
@@ -34,6 +37,7 @@ export default function ChapterPage() {
   useBodyClass('chapter-view')
   const [showSettings, setShowSettings] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  const [confirmAction, setConfirmAction] = useState<'delete' | 'leave' | null>(null)
 
   useEffect(() => {
     if (searchParams.get('settings') !== '1') return
@@ -83,13 +87,21 @@ export default function ChapterPage() {
   }
 
   const { openTab, closeTab } = useTabs()
+  const { user } = useAuth()
 
   const update = useUpdateChapter(id ?? 0, chapter?.folderId ?? 0)
   const del = useDeleteChapter(chapter?.folderId ?? 0)
+  const leaveShare = useLeaveShare()
 
   useEffect(() => {
     if (chapter) {
-      openTab({ chapterId: chapter.id, name: chapter.name, folderId: chapter.folderId, bookId: chapter.bookId })
+      openTab({
+        chapterId: chapter.id,
+        name: chapter.name,
+        folderId: chapter.folderId,
+        folderAccessible: chapter.folderAccessible,
+        bookId: chapter.bookId,
+      })
     }
   }, [chapter, openTab])
 
@@ -140,6 +152,10 @@ export default function ChapterPage() {
     )
   }
 
+  function handleToggleComplete(completed: boolean) {
+    update.mutate({ completed })
+  }
+
   function handleSaveSettings(data: { name: string; description: string }) {
     setSaveStatus('saving')
     update.mutate(
@@ -161,15 +177,26 @@ export default function ChapterPage() {
     )
   }
 
-  function handleDelete() {
-    if (window.confirm(`Delete chapter "${chapter!.name}"? This cannot be undone.`)) {
-      del.mutate(chapter!.id, {
+  function confirmDelete() {
+    del.mutate(chapter!.id, {
+      onSuccess: () => {
+        closeTab(chapter!.id)
+        navigate(chapter!.folderAccessible ? `/folders/${chapter!.folderId}` : '/')
+      },
+    })
+  }
+
+  function confirmLeave() {
+    if (!user) return
+    leaveShare.mutate(
+      { resourceType: 'chapter', resourceId: chapter!.id, userId: user.id },
+      {
         onSuccess: () => {
           closeTab(chapter!.id)
-          navigate(`/folders/${chapter!.folderId}`)
+          navigate('/')
         },
-      })
-    }
+      },
+    )
   }
 
   return (
@@ -178,9 +205,11 @@ export default function ChapterPage() {
         <ChapterTabs />
         <header className="chapter-header">
           <div className="chapter-title-group">
-            <Link className="chapter-back" to={`/folders/${chapter.folderId}`} aria-label="Back to folder" title="Back to folder">
-              <span aria-hidden="true">&#8592;</span>
-            </Link>
+            {chapter.folderAccessible && (
+              <Link className="chapter-back" to={`/folders/${chapter.folderId}`} aria-label="Back to folder" title="Back to folder">
+                <span aria-hidden="true">&#8592;</span>
+              </Link>
+            )}
             <h1>{chapter.name}</h1>
           </div>
           <div className="chapter-actions" aria-label="Chapter actions">
@@ -192,6 +221,9 @@ export default function ChapterPage() {
             <button className="chapter-action" type="button" onClick={() => setShowHistory(true)}>
               History
             </button>
+            <Link className="chapter-action" to={`/chapters/${chapter.id}/stats`}>
+              Stats
+            </Link>
             <button className="chapter-action" type="button" onClick={() => setShowSettings(true)}>
               Settings
             </button>
@@ -216,7 +248,30 @@ export default function ChapterPage() {
             saving={update.isPending}
             onClose={() => setShowSettings(false)}
             onSave={handleSaveSettings}
-            onDelete={handleDelete}
+            onDelete={() => setConfirmAction('delete')}
+            onLeave={chapter.directShare ? () => setConfirmAction('leave') : undefined}
+            onToggleComplete={handleToggleComplete}
+            canEdit={chapter.role !== 'viewer'}
+          />
+        )}
+        {confirmAction === 'delete' && (
+          <ConfirmModal
+            title="Delete chapter"
+            message={`Delete chapter "${chapter.name}"? This cannot be undone.`}
+            confirmLabel="Delete"
+            pending={del.isPending}
+            onConfirm={confirmDelete}
+            onCancel={() => setConfirmAction(null)}
+          />
+        )}
+        {confirmAction === 'leave' && (
+          <ConfirmModal
+            title="Leave chapter"
+            message={`Leave chapter "${chapter.name}"? You'll lose access unless re-shared.`}
+            confirmLabel="Leave"
+            pending={leaveShare.isPending}
+            onConfirm={confirmLeave}
+            onCancel={() => setConfirmAction(null)}
           />
         )}
         {showHistory && (

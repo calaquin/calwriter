@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useChapterVersions, useChapterVersion, useRestoreChapterVersion } from '../api/hooks'
+import ConfirmModal from './ConfirmModal'
 
 function formatTimestamp(iso: string) {
   return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
@@ -24,6 +25,7 @@ export default function ChapterHistoryModal({
   const [selected, setSelected] = useState<Selection>('current')
   const { data: selectedVersion } = useChapterVersion(chapterId, typeof selected === 'number' ? selected : undefined)
   const restore = useRestoreChapterVersion(chapterId)
+  const [confirmingRestore, setConfirmingRestore] = useState(false)
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -35,13 +37,11 @@ export default function ChapterHistoryModal({
 
   function handleRestore() {
     if (typeof selected !== 'number') return
-    if (
-      !window.confirm(
-        'Restore this version? Your current content will be saved as a checkpoint first, so this can be undone too.',
-      )
-    ) {
-      return
-    }
+    setConfirmingRestore(true)
+  }
+
+  function confirmRestore() {
+    if (typeof selected !== 'number') return
     restore.mutate(selected, {
       onSuccess: () => {
         onRestored()
@@ -116,6 +116,17 @@ export default function ChapterHistoryModal({
           </div>
         </div>
       </div>
+      {confirmingRestore && (
+        <ConfirmModal
+          title="Restore version"
+          message="Restore this version? Your current content will be saved as a checkpoint first, so this can be undone too."
+          confirmLabel="Restore"
+          danger={false}
+          pending={restore.isPending}
+          onConfirm={confirmRestore}
+          onCancel={() => setConfirmingRestore(false)}
+        />
+      )}
     </div>
   )
 }

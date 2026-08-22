@@ -6,6 +6,7 @@ export interface OpenTab {
   chapterId: number
   name: string
   folderId: number
+  folderAccessible: boolean
   bookId: number
 }
 
@@ -47,7 +48,12 @@ export function TabsProvider({ children }: { children: ReactNode }) {
         saveTabs(next)
         return next
       }
-      if (prev[idx].name !== tab.name || prev[idx].folderId !== tab.folderId || prev[idx].bookId !== tab.bookId) {
+      if (
+        prev[idx].name !== tab.name ||
+        prev[idx].folderId !== tab.folderId ||
+        prev[idx].folderAccessible !== tab.folderAccessible ||
+        prev[idx].bookId !== tab.bookId
+      ) {
         const next = [...prev]
         next[idx] = tab
         saveTabs(next)

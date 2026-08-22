@@ -1,18 +1,24 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { useBooks, useSettings } from '../api/hooks'
+import { useBooks, useSettings, useSharedWithMe, useLeaveShare } from '../api/hooks'
 import { useAuth } from '../context/AuthContext'
 import { useSidebarVisibility } from '../context/SidebarVisibilityContext'
 import FolderTreeNode from './FolderTreeNode'
+import TreeItemMenu from './TreeItemMenu'
+import ConfirmModal from './ConfirmModal'
+import type { SharedItem } from '../api/types'
 
 export default function Sidebar() {
   const { data: books } = useBooks()
   const { data: settings } = useSettings()
+  const { data: sharedItems } = useSharedWithMe()
+  const leaveShare = useLeaveShare()
   const { user, logout } = useAuth()
   const { sidebarHidden, toggleSidebar } = useSidebarVisibility()
   const navigate = useNavigate()
   const location = useLocation()
   const [query, setQuery] = useState('')
+  const [leaveTarget, setLeaveTarget] = useState<SharedItem | null>(null)
 
   function handleSearch(e: FormEvent) {
     e.preventDefault()
@@ -104,6 +110,56 @@ export default function Sidebar() {
           />
         ))}
       </ul>
+      {sharedItems && sharedItems.length > 0 && (
+        <>
+          <div className="sidebar-section-label">Shared with me</div>
+          <ul className="tree">
+            {sharedItems.map((item) => {
+              function leave() {
+                setLeaveTarget(item)
+              }
+              return item.type === 'folder' ? (
+                <FolderTreeNode
+                  key={`shared-folder-${item.id}`}
+                  folderId={item.id}
+                  name={item.name}
+                  level={0}
+                  parentId={item.parentId}
+                  role={item.role}
+                  isBook={false}
+                  closedFolderIds={closedFolderIds}
+                  closedChapterIds={closedChapterIds}
+                  extraMenuActions={[{ label: 'Leave', danger: true, separatorBefore: true, onClick: leave }]}
+                />
+              ) : (
+                <li key={`shared-chapter-${item.id}`} className="tree-item chapter-item shared-item">
+                  <Link to={`/chapters/${item.id}`}>{item.name}</Link>
+                  <small className="shared-item-book" title={item.bookName}>
+                    {item.bookName}
+                  </small>
+                  <TreeItemMenu actions={[{ label: 'Leave', danger: true, onClick: leave }]} />
+                </li>
+              )
+            })}
+          </ul>
+        </>
+      )}
+      {leaveTarget && (
+        <ConfirmModal
+          title={`Leave ${leaveTarget.type === 'folder' ? 'sub-folder' : 'chapter'}`}
+          message={`Remove "${leaveTarget.name}" from your sidebar? You can be re-shared with it later.`}
+          confirmLabel="Leave"
+          pending={leaveShare.isPending}
+          onConfirm={() => {
+            if (!user) return
+            leaveShare.mutate(
+              { resourceType: leaveTarget.type, resourceId: leaveTarget.id, userId: user.id },
+              { onSuccess: () => setLeaveTarget(null) },
+            )
+          }}
+          onCancel={() => setLeaveTarget(null)}
+        />
+      )}
     </div>
   )
 }

@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useBook, useUpdateBook } from '../api/hooks'
 import { ApiError } from '../api/client'
+import SharingSection from '../components/SharingSection'
 
 export default function BookSettingsPage() {
   const { folderId } = useParams()
@@ -105,6 +106,18 @@ export default function BookSettingsPage() {
           </div>
         </form>
       </section>
+
+      {book.role === 'owner' && (
+        <section className="settings-panel">
+          <div className="settings-panel-header">
+            <div>
+              <h2>Sharing</h2>
+              <p>Invite someone to read or edit this book.</p>
+            </div>
+          </div>
+          <SharingSection resourceType="folder" resourceId={book.id} resourceNoun="book" showHeading={false} />
+        </section>
+      )}
     </div>
   )
 }
