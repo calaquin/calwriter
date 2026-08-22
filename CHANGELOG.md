@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.17.2 - 2026-08-22 21:15 UTC
+- Fixed deploys breaking with `UndefinedColumn` errors after adding a migration: the container now runs `alembic upgrade head` automatically on startup (new `docker-entrypoint.sh`), before the app itself starts, instead of requiring that as a separate manual step every deploy
+
 ## 0.17.1 - 2026-08-22 21:00 UTC
 - Goal cards: a book's own name now uses that book's color (matching the sidebar) instead of the generic link color, and a goal on a sub-folder or chapter now shows the full Book › Sub-folder breadcrumb above its name so it's clear which book it belongs to at a glance
 
