@@ -13,8 +13,10 @@ COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 COPY --from=frontend-build /frontend/dist ./frontend/dist
-RUN useradd --create-home --shell /usr/sbin/nologin appuser \
+RUN chmod +x docker-entrypoint.sh \
+    && useradd --create-home --shell /usr/sbin/nologin appuser \
     && chown -R appuser:appuser /app
 USER appuser
 HEALTHCHECK --interval=30s --timeout=3s CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5000/healthz')" || exit 1
+ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "app:app"]
