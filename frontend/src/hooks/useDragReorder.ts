@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 
-export function useDragReorder<T extends { id: number }>(items: readonly T[], onReorder: (orderedIds: number[]) => void) {
+export function useDragReorder<T extends { id: string }>(items: readonly T[], onReorder: (orderedIds: string[]) => void) {
   const [order, setOrder] = useState<readonly T[]>(items)
   const dragIndex = useRef<number | null>(null)
 
@@ -11,8 +11,17 @@ export function useDragReorder<T extends { id: number }>(items: readonly T[], on
   // Otherwise: new []  -> setOrder -> re-render -> new [] -> ... infinite loop.
   useEffect(() => {
     setOrder((prev) => {
-      const unchanged = prev.length === items.length && prev.every((p, i) => p.id === items[i]?.id)
-      return unchanged ? prev : items
+      const sameIds = prev.length === items.length && prev.every((p, i) => p.id === items[i]?.id)
+      if (!sameIds) return items
+      // Same ids in the same positions -- keep this hook's own order (so an
+      // in-progress drag or a reorder that just landed isn't clobbered by a
+      // refetch), but still pick up each item's latest field values (e.g. a
+      // "Complete" toggle) from the fresh data rather than displaying
+      // whatever was true when this order was last set.
+      const byId = new Map(items.map((item) => [item.id, item]))
+      const refreshed = prev.map((p) => byId.get(p.id) ?? p)
+      const changed = refreshed.some((r, i) => r !== prev[i])
+      return changed ? refreshed : prev
     })
   }, [items])
 

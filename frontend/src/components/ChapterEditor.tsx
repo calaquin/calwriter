@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { useSidebarVisibility } from '../context/SidebarVisibilityContext'
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { useShortcutsModal } from '../context/ShortcutsModalContext'
+import { copyText } from '../utils/clipboard'
 
 const FULL_WIDTH_KEY = 'calwriter:editorFullWidth'
 
@@ -260,17 +260,37 @@ export default function ChapterEditor({
   initialHtml,
   onChange,
   onWordCountChange,
+  bookColor,
+  writeMode,
+  onToggleWriteMode,
+  completed,
+  onToggleComplete,
 }: {
-  chapterId: number
+  chapterId: string
   initialHtml: string
   onChange: (html: string) => void
   onWordCountChange?: (count: number) => void
+  /** Resolved book color to tint the editor background with, or null/undefined
+   * to leave the editor at its plain theme background. */
+  bookColor?: string | null
+  /** Distraction-free mode: hides the app sidebar plus everything above this
+   * toolbar (chapter tabs, header) -- driven by the parent ChapterPage since
+   * that's what owns the tabs/header being hidden. */
+  writeMode: boolean
+  onToggleWriteMode: () => void
+  /** Chapter's own completed_at !== null -- surfaced here too (also settable
+   * from Chapter Settings and the Book/Sub-Folder chapter list) so marking a
+   * chapter done doesn't require leaving the editor. Optional since not
+   * every caller of this component (there is only one today, ChapterPage)
+   * necessarily has permission to toggle it. */
+  completed?: boolean
+  onToggleComplete?: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const characterPickerRef = useRef<HTMLDivElement>(null)
-  const lastLoadedChapterId = useRef<number | null>(null)
+  const lastLoadedChapterId = useRef<string | null>(null)
   const [showCharacters, setShowCharacters] = useState(false)
-  const { sidebarHidden, toggleSidebar } = useSidebarVisibility()
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle')
   const { open: openShortcuts } = useShortcutsModal()
   const [isFullWidth, setIsFullWidth] = useState(() => {
     try {
@@ -279,6 +299,12 @@ export default function ChapterEditor({
       return false
     }
   })
+
+  async function copyAllText() {
+    const text = ref.current?.innerText ?? ''
+    setCopyStatus((await copyText(text)) ? 'copied' : 'error')
+    setTimeout(() => setCopyStatus('idle'), 2000)
+  }
 
   // Only set innerHTML when we switch chapters, never on every render --
   // otherwise React would clobber the cursor position on each keystroke.
@@ -402,8 +428,12 @@ export default function ChapterEditor({
     })
   }
 
+  const tintStyle = bookColor
+    ? ({ '--book-tint': `color-mix(in srgb, ${bookColor} 8%, var(--editor-bg))` } as CSSProperties)
+    : undefined
+
   return (
-    <div className={`chapter-editor-shell${isFullWidth ? ' full-width' : ''}`}>
+    <div className={`chapter-editor-shell${isFullWidth ? ' full-width' : ''}`} style={tintStyle}>
       <div className="toolbar" role="toolbar" aria-label="Editor toolbar">
         <button type="button" className="icon-btn icon-bold" onMouseDown={(e) => e.preventDefault()} onClick={() => runCommand('bold')} title="Bold (Ctrl+B)" aria-label="Bold" />
         <button type="button" className="icon-btn icon-italic" onMouseDown={(e) => e.preventDefault()} onClick={() => runCommand('italic')} title="Italic (Ctrl+I)" aria-label="Italic" />
@@ -474,15 +504,37 @@ export default function ChapterEditor({
         >
           ?
         </button>
+        {onToggleComplete && (
+          <>
+            <span className="toolbar-divider" aria-hidden="true" />
+            <button
+              type="button"
+              className={`icon-btn icon-complete${completed ? ' active' : ''}`}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onToggleComplete}
+              aria-pressed={completed}
+              title={completed ? 'Marked complete -- click to unmark' : 'Mark chapter complete'}
+              aria-label={completed ? 'Marked complete -- click to unmark' : 'Mark chapter complete'}
+            />
+          </>
+        )}
         <span className="toolbar-spacer" />
         <button
           type="button"
           className="editor-width-toggle"
-          onClick={toggleSidebar}
-          aria-pressed={sidebarHidden}
-          title={sidebarHidden ? 'Show sidebar' : 'Hide sidebar'}
+          onClick={copyAllText}
+          title="Copy all chapter text"
         >
-          {sidebarHidden ? 'Show sidebar' : 'Hide sidebar'}
+          {copyStatus === 'copied' ? 'Copied!' : copyStatus === 'error' ? 'Copy failed' : 'Copy all'}
+        </button>
+        <button
+          type="button"
+          className={`editor-width-toggle${writeMode ? ' active' : ''}`}
+          onClick={onToggleWriteMode}
+          aria-pressed={writeMode}
+          title="Hide the sidebar and everything above this toolbar"
+        >
+          Write Mode
         </button>
         <button
           type="button"

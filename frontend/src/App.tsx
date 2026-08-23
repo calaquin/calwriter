@@ -10,6 +10,7 @@ import HomePage from './pages/HomePage'
 import FolderPage from './pages/FolderPage'
 import BookSettingsPage from './pages/BookSettingsPage'
 import ChapterPage from './pages/ChapterPage'
+import ChapterDiffPage from './pages/ChapterDiffPage'
 import SettingsPage from './pages/SettingsPage'
 import SearchPage from './pages/SearchPage'
 import StatsPage from './pages/StatsPage'
@@ -46,6 +47,7 @@ const router = createBrowserRouter(
           <Route path="/folders/:folderId/stats" element={<StatsPage />} />
           <Route path="/chapters/:chapterId" element={<ChapterPage />} />
           <Route path="/chapters/:chapterId/stats" element={<StatsPage />} />
+          <Route path="/chapters/:chapterId/diff" element={<ChapterDiffPage />} />
         </Route>
       </Route>
     </>,

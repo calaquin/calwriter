@@ -10,7 +10,7 @@ export default function SharingSection({
   collapsible = false,
 }: {
   resourceType: 'folder' | 'chapter'
-  resourceId: number
+  resourceId: string
   /** What to call this in the UI, e.g. "book", "sub-folder", "chapter". */
   resourceNoun: string
   /** Set false when an enclosing section already has its own "Sharing" heading. */

@@ -24,8 +24,8 @@ import type { Role } from '../api/types'
 const CHAPTER_DRAG_TYPE = 'application/x-calwriter-chapter'
 
 interface ChapterDragPayload {
-  chapterId: number
-  sourceFolderId: number
+  chapterId: string
+  sourceFolderId: string
 }
 
 function readChapterDragPayload(e: DragEvent): ChapterDragPayload | null {
@@ -50,14 +50,14 @@ export default function FolderTreeNode({
   isBook = level === 0,
   extraMenuActions,
 }: {
-  folderId: number
+  folderId: string
   name: string
   level: number
-  parentId: number | null
+  parentId: string | null
   role: Role
   color?: string
-  closedFolderIds: ReadonlySet<number>
-  closedChapterIds: ReadonlySet<number>
+  closedFolderIds: ReadonlySet<string>
+  closedChapterIds: ReadonlySet<string>
   /** Defaults to `level === 0`. Pass explicitly for a folder rendered as a
    * top-level sidebar entry despite having a real (inaccessible) parent --
    * a sub-folder shared directly with the user, for instance -- so it's
@@ -70,7 +70,7 @@ export default function FolderTreeNode({
   const [expanded, setExpanded] = useState(level === 0)
   const [creating, setCreating] = useState<'folder' | 'chapter' | null>(null)
   const [renamingFolder, setRenamingFolder] = useState(false)
-  const [renamingChapter, setRenamingChapter] = useState<{ id: number; name: string } | null>(null)
+  const [renamingChapter, setRenamingChapter] = useState<{ id: string; name: string } | null>(null)
   const { data } = useFolder(expanded ? folderId : undefined)
   const { data: treeIds } = useFolderTreeIds(folderId)
   const hasChildren = data ? data.folders.length > 0 || data.chapters.length > 0 : true
@@ -139,7 +139,7 @@ export default function FolderTreeNode({
     )
   }
 
-  function toggleChapterOpen(chapterId: number) {
+  function toggleChapterOpen(chapterId: string) {
     const current = settings?.closedChapterIds ?? []
     const isClosed = current.includes(chapterId)
     updateSettings.mutate({
@@ -152,20 +152,20 @@ export default function FolderTreeNode({
     triggerDownload(`/folders/${folderId}/export.${ext}`)
   }
 
-  function downloadChapter(chapterId: number, ext: string) {
+  function downloadChapter(chapterId: string, ext: string) {
     triggerDownload(`/chapters/${chapterId}/export.${ext}`)
   }
 
   const [folderDragOver, setFolderDragOver] = useState(false)
-  const [chapterDragOver, setChapterDragOver] = useState<{ id: number; before: boolean } | null>(null)
+  const [chapterDragOver, setChapterDragOver] = useState<{ id: string; before: boolean } | null>(null)
 
-  function handleChapterDragStart(chapterId: number, e: DragEvent) {
+  function handleChapterDragStart(chapterId: string, e: DragEvent) {
     const payload: ChapterDragPayload = { chapterId, sourceFolderId: folderId }
     e.dataTransfer.setData(CHAPTER_DRAG_TYPE, JSON.stringify(payload))
     e.dataTransfer.effectAllowed = 'move'
   }
 
-  function handleChapterDragOver(chapterId: number, e: DragEvent<HTMLLIElement>) {
+  function handleChapterDragOver(chapterId: string, e: DragEvent<HTMLLIElement>) {
     if (!canEdit) return
     e.preventDefault()
     e.stopPropagation()
@@ -175,7 +175,7 @@ export default function FolderTreeNode({
     setChapterDragOver((prev) => (prev?.id === chapterId && prev.before === before ? prev : { id: chapterId, before }))
   }
 
-  function handleChapterDrop(targetChapterId: number, e: DragEvent) {
+  function handleChapterDrop(targetChapterId: string, e: DragEvent) {
     e.preventDefault()
     e.stopPropagation()
     const dropBefore = chapterDragOver?.id === targetChapterId ? chapterDragOver.before : true
@@ -220,11 +220,11 @@ export default function FolderTreeNode({
   }
 
   const folderIsOpen = isBook ? (settings?.openBookIds ?? []).includes(folderId) : !closedFolderIds.has(folderId)
-  const downloadSubmenu = (kind: 'folder' | number) => [
-    { label: 'Download as .docx', onClick: () => (kind === 'folder' ? downloadFolder('docx') : downloadChapter(kind, 'docx')) },
-    { label: 'Download as .rtf', onClick: () => (kind === 'folder' ? downloadFolder('rtf') : downloadChapter(kind, 'rtf')) },
-    { label: 'Download as .txt', onClick: () => (kind === 'folder' ? downloadFolder('txt') : downloadChapter(kind, 'txt')) },
-    { label: 'Download as .md', onClick: () => (kind === 'folder' ? downloadFolder('md') : downloadChapter(kind, 'md')) },
+  const downloadSubmenu = (kind: 'folder' | { chapterId: string }) => [
+    { label: 'Download as .docx', onClick: () => (kind === 'folder' ? downloadFolder('docx') : downloadChapter(kind.chapterId, 'docx')) },
+    { label: 'Download as .rtf', onClick: () => (kind === 'folder' ? downloadFolder('rtf') : downloadChapter(kind.chapterId, 'rtf')) },
+    { label: 'Download as .txt', onClick: () => (kind === 'folder' ? downloadFolder('txt') : downloadChapter(kind.chapterId, 'txt')) },
+    { label: 'Download as .md', onClick: () => (kind === 'folder' ? downloadFolder('md') : downloadChapter(kind.chapterId, 'md')) },
   ]
   const hasClosedDescendants =
     !!treeIds &&
@@ -336,7 +336,7 @@ export default function FolderTreeNode({
                   { label: 'Settings', onClick: () => navigate(`/chapters/${c.id}?settings=1`) },
                   { label: 'Stats', onClick: () => navigate(`/chapters/${c.id}/stats`) },
                   { label: 'Goals', onClick: () => navigate(`/goals?resourceType=chapter&resourceId=${c.id}`) },
-                  { label: 'Download', submenu: downloadSubmenu(c.id) },
+                  { label: 'Download', submenu: downloadSubmenu({ chapterId: c.id }) },
                   {
                     label: closedChapterIds.has(c.id) ? 'Open' : 'Close',
                     onClick: () => toggleChapterOpen(c.id),

@@ -29,7 +29,7 @@ export default function HomePage() {
   const { order, onDragStart, onDragOver, onDrop } = useDragReorder(books ?? EMPTY_ARRAY, (ids) => reorderBooks.mutate(ids))
   const openBookIds = new Set(settings?.openBookIds ?? [])
 
-  function toggleBookOpen(bookId: number, isOpen: boolean) {
+  function toggleBookOpen(bookId: string, isOpen: boolean) {
     const current = settings?.openBookIds ?? []
     const nextIds = isOpen ? current.filter((id) => id !== bookId) : [...current, bookId]
     updateSettings.mutate({ openBookIds: nextIds })

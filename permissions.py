@@ -1,3 +1,5 @@
+import uuid
+
 from flask import abort, g
 from flask_login import current_user
 
@@ -48,7 +50,7 @@ def role_for_chapter(chapter: Chapter) -> str | None:
     return best
 
 
-def accessible_book_ids() -> set[int]:
+def accessible_book_ids() -> set[uuid.UUID]:
     """Root folder ids the current user has whole-book access to: books they
     own, or books with a share directly on the root folder. Doesn't include
     books where they only have a narrower sub-folder/chapter share -- see
@@ -85,7 +87,7 @@ def shared_items() -> tuple[list[Folder], list[Chapter]]:
     return folders, chapters
 
 
-def require_book_access(book_id: int, min_role: str = 'viewer') -> Folder:
+def require_book_access(book_id: uuid.UUID, min_role: str = 'viewer') -> Folder:
     """Load a book (root folder) and assert current_user has >= min_role on it.
 
     404s (not 403) when the user has no relationship to the book at all, so
@@ -102,7 +104,7 @@ def require_book_access(book_id: int, min_role: str = 'viewer') -> Folder:
     return book
 
 
-def require_folder_access(folder_id: int, min_role: str = 'viewer') -> Folder:
+def require_folder_access(folder_id: uuid.UUID, min_role: str = 'viewer') -> Folder:
     folder = Folder.query.get_or_404(folder_id)
     role = role_for_folder(folder)
     if role is None:
@@ -112,7 +114,7 @@ def require_folder_access(folder_id: int, min_role: str = 'viewer') -> Folder:
     return folder
 
 
-def require_chapter_access(chapter_id: int, min_role: str = 'viewer') -> Chapter:
+def require_chapter_access(chapter_id: uuid.UUID, min_role: str = 'viewer') -> Chapter:
     chapter = Chapter.query.get_or_404(chapter_id)
     role = role_for_chapter(chapter)
     if role is None:

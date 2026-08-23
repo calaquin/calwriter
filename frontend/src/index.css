@@ -161,6 +161,70 @@ body.dark {
     opacity: 1;
 }
 
+.sidebar-primary-goal {
+    display: block;
+    padding: 10px 12px;
+    margin-bottom: 14px;
+    border: 1px solid rgba(217, 164, 6, 0.3);
+    border-radius: 8px;
+    background: rgba(217, 164, 6, 0.08);
+    color: inherit;
+    text-decoration: none;
+}
+.sidebar-primary-goal:hover {
+    background: rgba(217, 164, 6, 0.14);
+}
+.sidebar-primary-goal-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+.sidebar-primary-goal-star {
+    color: #a97c00;
+    font-size: 0.85rem;
+}
+body.dark .sidebar-primary-goal-star {
+    color: #e0b83e;
+}
+.sidebar-primary-goal-name {
+    font-size: 0.82rem;
+    font-weight: 650;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.sidebar-primary-goal .goal-progress-label {
+    margin-top: 4px;
+    font-size: 0.72rem;
+}
+.sidebar-resume-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    margin-bottom: 14px;
+    border: 1px solid rgba(127, 127, 127, 0.25);
+    border-radius: 8px;
+    color: var(--text-color);
+    text-decoration: none;
+    font-size: 0.8rem;
+    opacity: 0.85;
+}
+.sidebar-resume-link:hover {
+    background: rgba(127, 127, 127, 0.1);
+    opacity: 1;
+}
+.sidebar-resume-icon {
+    flex-shrink: 0;
+    opacity: 0.7;
+}
+.sidebar-resume-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 #search_form {
     margin-bottom: 14px;
 }
@@ -228,6 +292,27 @@ body.chapter-view #chapter_area h1 {
     gap: 10px;
     min-width: 0;
     flex: 1;
+}
+.chapter-title-notice {
+    padding: 4px 10px;
+    border-radius: 12px;
+    background: rgba(127, 127, 127, 0.14);
+    color: var(--text-color);
+    font-size: 0.75rem;
+    font-weight: 500;
+    opacity: 0.75;
+    white-space: nowrap;
+    flex-shrink: 0;
+    animation: chapter-title-notice-in 0.15s ease-out;
+}
+@keyframes chapter-title-notice-in {
+    from {
+        opacity: 0;
+        transform: translateY(2px);
+    }
+    to {
+        opacity: 0.75;
+    }
 }
 .chapter-actions {
     gap: 6px;
@@ -458,8 +543,23 @@ body.chapter-view #chapter_area h1 {
     font-size: 0.78rem;
     white-space: nowrap;
 }
+/* A long-form explanation (e.g. the complete-checkmark's purpose) reads
+   better stacked and left-aligned than squeezed into the short "key ->
+   one-liner" row shape every other shortcut uses. */
+.shortcuts-row.prose {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+}
+.shortcuts-row.prose dd {
+    text-align: left;
+    line-height: 1.45;
+}
 .history-modal {
     width: min(100%, 720px);
+}
+.history-modal.comparing {
+    width: min(100%, 980px);
 }
 .history-modal-body {
     display: grid;
@@ -547,11 +647,142 @@ body.chapter-view #chapter_area h1 {
 .history-preview-content p {
     margin: 0 0 1em 0;
 }
+.history-compare-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 14px;
+}
+.history-compare-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.78rem;
+    opacity: 0.75;
+}
+.history-compare-label select {
+    padding: 6px 9px;
+    border: 1px solid rgba(127, 127, 127, 0.4);
+    border-radius: 5px;
+    background: var(--bg-color);
+    color: var(--text-color);
+    font: inherit;
+    font-size: 0.8rem;
+}
+.history-compare-label select:focus {
+    outline: 2px solid rgba(88, 123, 190, 0.4);
+    outline-offset: 1px;
+}
+.history-full-page-link {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 10px;
+    border: 1px solid rgba(127, 127, 127, 0.35);
+    border-radius: 6px;
+    color: var(--text-color);
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+    opacity: 0.85;
+}
+.history-full-page-link:hover {
+    background: rgba(127, 127, 127, 0.12);
+    opacity: 1;
+}
+.history-diff {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    flex: 1;
+    min-height: 0;
+}
+.history-diff-side {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 0;
+}
+.history-diff-side-label {
+    font-size: 0.78rem;
+    font-weight: 650;
+    opacity: 0.7;
+}
+.history-diff-pane {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 16px;
+    border: 1px solid rgba(127, 127, 127, 0.24);
+    border-radius: 6px;
+    background: var(--bg-color);
+    font-size: 0.88rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+/* Colors match GitHub's own word-diff highlight (the mode you get from a
+   PR diff's "..." menu -> Show word diff) -- a flat, fully-opaque highlight
+   directly behind just the changed words, not a padded/rounded "chip". */
+.history-diff-added {
+    background: #abf2bc;
+    color: #1a7f37;
+    text-decoration: none;
+}
+.history-diff-removed {
+    background: #ffc9c9;
+    color: #b31d28;
+    text-decoration: line-through;
+}
+body.dark .history-diff-added {
+    background: rgba(46, 160, 67, 0.4);
+    color: #56d364;
+}
+body.dark .history-diff-removed {
+    background: rgba(248, 81, 73, 0.4);
+    color: #ff7b72;
+}
+@media (max-width: 640px) {
+    .history-diff {
+        grid-template-columns: 1fr;
+        grid-auto-rows: minmax(0, 1fr);
+    }
+}
 .history-empty {
     margin: 0;
     padding: 14px 0;
     font-size: 0.85rem;
     opacity: 0.55;
+}
+.diff-page-section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+/* Mirrors .history-diff's own grid (same columns, same gap) so each
+   selector sits centered directly above the diff pane it controls. */
+.diff-page-selectors {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+.diff-page-selectors .history-compare-label {
+    justify-content: center;
+    font-size: 0.85rem;
+}
+.diff-page-selectors select {
+    font-size: 0.85rem;
+}
+@media (max-width: 640px) {
+    .diff-page-selectors {
+        grid-template-columns: 1fr;
+    }
+}
+.diff-page-restore-row {
+    display: flex;
+    gap: 10px;
+}
+.diff-page-section .history-diff {
+    height: 65vh;
 }
 #chapter_form {
     display: flex;
@@ -567,7 +798,7 @@ body.chapter-view #chapter_area h1 {
     border: 1px solid rgba(127, 127, 127, 0.28);
     border-radius: 3px;
     box-sizing: border-box;
-    background: var(--editor-bg);
+    background: var(--book-tint, var(--editor-bg));
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
     color: var(--text-color);
     font-size: 1.05rem;
@@ -675,6 +906,12 @@ body.chapter-view #chapter_area h1 {
     gap: 12px;
     margin-bottom: 16px;
 }
+.notes-header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
 #notes_sidebar .notes-header h2 {
     margin: 0;
     font-size: 1rem;
@@ -688,6 +925,26 @@ body.chapter-view #chapter_area h1 {
 }
 #notes_sidebar.collapsed #notes_editor {
     display: none;
+}
+.notes-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+.notes-copy {
+    height: 32px;
+    padding: 0 8px;
+    border-color: transparent;
+    background: transparent;
+    font-size: 0.72rem;
+    font-weight: 600;
+    opacity: 0.65;
+    white-space: nowrap;
+}
+.notes-copy:hover {
+    background: rgba(127, 127, 127, 0.14);
+    opacity: 1;
 }
 .notes-toggle {
     display: inline-flex;
@@ -856,7 +1113,7 @@ body.chapter-view #chapter_area h1 {
     min-height: 0;
 }
 .chapter-editor-shell.full-width .editor-workspace {
-    background: var(--editor-bg);
+    background: var(--book-tint, var(--editor-bg));
 }
 .chapter-editor-shell.full-width #chapter_editor {
     width: 100%;
@@ -903,6 +1160,10 @@ body.chapter-view #chapter_area h1 {
     padding: 0 10px;
     font-size: 0.75rem;
     font-weight: 600;
+}
+.toolbar .editor-width-toggle.active {
+    border-color: rgba(127, 127, 127, 0.35);
+    background: rgba(127, 127, 127, 0.18);
 }
 .alignment-icon {
     width: 16px;
@@ -994,6 +1255,16 @@ body.chapter-view #chapter_area h1 {
 .icon-find::before { content: '\1F50D'; }
 .icon-undo::before { content: '\21ba'; }
 .icon-redo::before { content: '\21bb'; }
+.icon-complete::before { content: '\2714'; }
+.icon-complete.active {
+    color: #2f9e5c;
+    border-color: rgba(47, 158, 92, 0.4);
+    background: rgba(47, 158, 92, 0.14);
+}
+.icon-complete.active:hover {
+    border-color: rgba(47, 158, 92, 0.5);
+    background: rgba(47, 158, 92, 0.2);
+}
 .toolbar select {
     border: 1px solid #ccc;
     background: var(--bg-color);
@@ -1488,6 +1759,13 @@ body.chapter-view #chapter_area h1 {
     background: rgba(127, 127, 127, 0.12);
     opacity: 1;
 }
+.item-visibility-button.completed {
+    color: #2f9e5c;
+    opacity: 1;
+}
+.item-visibility-button.completed:hover {
+    background: rgba(47, 158, 92, 0.12);
+}
 .item-remove-button {
     color: #b33a3a;
 }
@@ -1772,6 +2050,7 @@ body.chapter-view #chapter_area h1 {
     padding: 14px 20px;
     border: 1px solid rgba(127, 127, 127, 0.22);
     border-radius: 8px;
+    background: rgba(127, 127, 127, 0.05);
 }
 .stats-summary-value {
     font-size: 1.8rem;
@@ -1832,6 +2111,131 @@ body.chapter-view #chapter_area h1 {
     font-size: 0.72rem;
     white-space: nowrap;
     opacity: 0.55;
+}
+.stats-tile-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding-bottom: 18px;
+    margin-bottom: 18px;
+    border-bottom: 1px solid rgba(127, 127, 127, 0.16);
+}
+.stats-tile-row .stats-summary-tile {
+    margin-bottom: 0;
+}
+.stats-busiest-resource {
+    margin: -8px 0 20px;
+    font-size: 0.85rem;
+    opacity: 0.75;
+}
+.stats-busiest-resource a {
+    color: var(--text-color);
+    font-weight: 650;
+    text-decoration: none;
+}
+.stats-busiest-resource a:hover {
+    text-decoration: underline;
+}
+
+/* writing activity heatmap (day-of-week x hour-of-day) */
+.writing-heatmap {
+    overflow-x: auto;
+}
+.writing-heatmap-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 560px;
+}
+.writing-heatmap-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.writing-heatmap-row-label {
+    width: 32px;
+    flex-shrink: 0;
+    font-size: 0.72rem;
+    opacity: 0.55;
+}
+.writing-heatmap-cells {
+    display: flex;
+    gap: 3px;
+    flex: 1;
+}
+.writing-heatmap-cell {
+    width: 18px;
+    height: 18px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    background: color-mix(in srgb, var(--text-color) calc(6% + (var(--heat, 0)) * 79%), var(--editor-bg));
+}
+.writing-heatmap-legend {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 10px;
+    font-size: 0.72rem;
+    opacity: 0.55;
+}
+.writing-heatmap-legend .writing-heatmap-cell {
+    width: 14px;
+    height: 14px;
+}
+
+/* per-chapter stats breakdown table */
+.stats-table-wrap {
+    overflow-x: auto;
+    border: 1px solid rgba(127, 127, 127, 0.24);
+    border-radius: 6px;
+}
+.stats-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+.stats-table th,
+.stats-table td {
+    padding: 10px 14px;
+    text-align: left;
+    white-space: nowrap;
+}
+.stats-table th {
+    background: rgba(127, 127, 127, 0.07);
+    font-size: 0.7rem;
+    font-weight: 650;
+    opacity: 0.6;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    border-bottom: 1px solid rgba(127, 127, 127, 0.24);
+}
+.stats-table th:first-child {
+    border-top-left-radius: 5px;
+}
+.stats-table th:last-child {
+    border-top-right-radius: 5px;
+}
+.stats-table td {
+    border-bottom: 1px solid rgba(127, 127, 127, 0.14);
+}
+.stats-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+.stats-table tbody tr:hover td {
+    background: rgba(127, 127, 127, 0.055);
+}
+.stats-table th:not(:first-child),
+.stats-table td:not(:first-child) {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.stats-table a {
+    color: var(--text-color);
+    font-weight: 600;
+    text-decoration: none;
+}
+.stats-table a:hover {
+    text-decoration: underline;
 }
 
 /* chapter settings: complete toggle */
@@ -1897,6 +2301,14 @@ body.chapter-view #chapter_area h1 {
     letter-spacing: 0.02em;
     text-transform: uppercase;
     opacity: 0.7;
+}
+.goal-card-badge-primary {
+    background: rgba(217, 164, 6, 0.18);
+    color: #a97c00;
+    opacity: 1;
+}
+body.dark .goal-card-badge-primary {
+    color: #e0b83e;
 }
 .goal-card-desc {
     margin: 4px 0 8px;

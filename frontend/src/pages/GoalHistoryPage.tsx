@@ -7,7 +7,7 @@ function formatDate(iso: string): string {
 
 export default function GoalHistoryPage() {
   const { goalId } = useParams()
-  const id = goalId ? Number(goalId) : undefined
+  const id = goalId
   const { data, isLoading } = useGoalHistory(id)
   const goal = data?.goal
   const periods = data?.periods ?? []

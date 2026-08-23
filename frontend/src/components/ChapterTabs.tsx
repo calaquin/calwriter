@@ -6,7 +6,7 @@ export default function ChapterTabs() {
   const { tabs, closeTab } = useTabs()
   const { data: books } = useBooks()
   const { chapterId } = useParams()
-  const activeId = chapterId ? Number(chapterId) : undefined
+  const activeId = chapterId
   const navigate = useNavigate()
 
   if (tabs.length === 0) return null

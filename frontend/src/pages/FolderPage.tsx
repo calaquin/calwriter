@@ -13,6 +13,7 @@ import {
   useUpdateSettings,
   useLeaveShare,
   useOpenAll,
+  useToggleChapterComplete,
 } from '../api/hooks'
 import { useDragReorder } from '../hooks/useDragReorder'
 import { EMPTY_ARRAY } from '../api/constants'
@@ -25,7 +26,7 @@ import TreeItemMenu, { type MenuAction } from '../components/TreeItemMenu'
 
 export default function FolderPage() {
   const { folderId } = useParams()
-  const id = folderId ? Number(folderId) : undefined
+  const id = folderId
   const { data: folder, isLoading, error } = useFolder(id)
   const { data: treeIds } = useFolderTreeIds(id)
   const { data: settings } = useSettings()
@@ -48,14 +49,15 @@ export default function FolderPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams])
 
-  const update = useUpdateFolder(id ?? 0, folder?.parentId ?? null)
+  const update = useUpdateFolder(id ?? '', folder?.parentId ?? null)
   const del = useDeleteFolder(folder?.parentId ?? null)
-  const createFolder = useCreateFolder(id ?? 0)
-  const createChapter = useCreateChapter(id ?? 0)
-  const reorder = useReorderFolderChildren(id ?? 0)
+  const createFolder = useCreateFolder(id ?? '')
+  const createChapter = useCreateChapter(id ?? '')
+  const reorder = useReorderFolderChildren(id ?? '')
   const updateSettings = useUpdateSettings()
   const leaveShare = useLeaveShare()
   const openAll = useOpenAll()
+  const toggleComplete = useToggleChapterComplete()
 
   const subfolderDrag = useDragReorder(folder?.folders ?? EMPTY_ARRAY, (order) => reorder.mutate({ type: 'folder', order }))
   const chapterDrag = useDragReorder(folder?.chapters ?? EMPTY_ARRAY, (order) => reorder.mutate({ type: 'chapter', order }))
@@ -78,7 +80,7 @@ export default function FolderPage() {
     })
   }
 
-  function handleSaveSettings(data: { name: string; description: string }) {
+  function handleSaveSettings(data: { name: string; description: string; showBookColor: boolean }) {
     update.mutate(data, { onSuccess: () => setShowSettings(false) })
   }
 
@@ -108,14 +110,14 @@ export default function FolderPage() {
     )
   }
 
-  function toggleSubfolderOpen(folderId: number, isOpen: boolean) {
+  function toggleSubfolderOpen(folderId: string, isOpen: boolean) {
     const current = settings?.closedFolderIds ?? []
     updateSettings.mutate({
       closedFolderIds: isOpen ? [...current, folderId] : current.filter((id) => id !== folderId),
     })
   }
 
-  function toggleChapterOpen(chapterId: number, isOpen: boolean) {
+  function toggleChapterOpen(chapterId: string, isOpen: boolean) {
     const current = settings?.closedChapterIds ?? []
     updateSettings.mutate({
       closedChapterIds: isOpen ? [...current, chapterId] : current.filter((id) => id !== chapterId),
@@ -299,6 +301,17 @@ export default function FolderPage() {
                     {c.description && <p className="folder-item-description">{c.description}</p>}
                     {!isOpen && <small>Hidden from sidebar</small>}
                   </div>
+                  {folder.role !== 'viewer' && (
+                    <button
+                      type="button"
+                      className={`item-visibility-button${c.completedAt !== null ? ' completed' : ''}`}
+                      onClick={() =>
+                        toggleComplete.mutate({ chapterId: c.id, folderId: folder.id, completed: c.completedAt === null })
+                      }
+                    >
+                      {c.completedAt !== null ? '✓ Complete' : 'Mark complete'}
+                    </button>
+                  )}
                   <button type="button" className="item-visibility-button" onClick={() => toggleChapterOpen(c.id, isOpen)}>
                     {isOpen ? 'Close' : 'Open'}
                   </button>

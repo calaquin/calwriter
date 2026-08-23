@@ -14,13 +14,14 @@ export default function FolderSettingsModal({
   folder: FolderDetail
   saving: boolean
   onClose: () => void
-  onSave: (data: { name: string; description: string }) => void
+  onSave: (data: { name: string; description: string; showBookColor: boolean }) => void
   onDelete: () => void
   onLeave?: () => void
   canEdit?: boolean
 }) {
   const [name, setName] = useState(folder.name)
   const [description, setDescription] = useState(folder.description)
+  const [showBookColor, setShowBookColor] = useState(folder.showBookColor)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -36,13 +37,14 @@ export default function FolderSettingsModal({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [onClose])
 
-  const changed = name.trim() !== folder.name || description !== folder.description
+  const changed =
+    name.trim() !== folder.name || description !== folder.description || showBookColor !== folder.showBookColor
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
     const trimmed = name.trim()
     if (!trimmed || !changed) return
-    onSave({ name: trimmed, description })
+    onSave({ name: trimmed, description, showBookColor })
   }
 
   return (
@@ -81,6 +83,15 @@ export default function FolderSettingsModal({
             rows={3}
             disabled={!canEdit}
           />
+          <label className="chapter-complete-toggle" style={{ marginTop: '14px' }}>
+            <input
+              type="checkbox"
+              checked={showBookColor}
+              onChange={(e) => setShowBookColor(e.target.checked)}
+              disabled={!canEdit}
+            />
+            Use book color as a subtle editor background
+          </label>
           {canEdit && (
             <button
               type="submit"

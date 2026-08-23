@@ -26,6 +26,15 @@ const SHORTCUT_GROUPS: { title: string; items: [string, string][] }[] = [
       ['Escape', 'Close the open dialog'],
     ],
   },
+  {
+    title: 'Chapter status',
+    items: [
+      [
+        '✔',
+        "Mark chapter complete for goal tracking, or just because you don't want to work on it for a while — it's up to you! You can always change the complete status whenever you want.",
+      ],
+    ],
+  },
 ]
 
 export default function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
@@ -57,7 +66,7 @@ export default function KeyboardShortcutsModal({ onClose }: { onClose: () => voi
             <h3 className="shortcuts-group-title">{group.title}</h3>
             <dl className="shortcuts-list">
               {group.items.map(([keys, label]) => (
-                <div className="shortcuts-row" key={keys}>
+                <div className={`shortcuts-row${group.title === 'Chapter status' ? ' prose' : ''}`} key={keys}>
                   <dt>
                     <kbd>{keys}</kbd>
                   </dt>

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.17.5 - 2026-08-23 19:09 UTC
+- Added a full writing-stats system. Workspace Stats now shows a writing streak (current + longest), average words-per-minute and total active writing time (both counted only while you're actually typing, not while a chapter is just left open), a goal hit-rate across your recurring goals, a week-over-week word trend, a "when you write" heatmap by day of week and hour, and your busiest chapter recently. Book/Sub-folder Stats now shows stale chapters (incomplete, no writing activity in 2 weeks) with a one-click way to mark them complete, a word-count spread across sibling chapters, and a per-chapter breakdown of revisions, recent word velocity, and WPM. Chapter Stats now shows that chapter's own WPM
+- Cleaned up the Stats pages: the summary tiles now read as a proper stat strip with a divider separating them from the chart below, and the chapter breakdown table has themed links, right-aligned numbers, and row hover instead of the old plain/drab table
+- Reworked how a chapter gets marked "Complete": dropped the sidebar tree checkbox, added a "Mark complete" button to each chapter row on Book/Sub-folder pages, and added a checkmark button to the editor toolbar itself (with its purpose explained in the Keyboard shortcuts reference) -- Chapter Settings still has the original toggle too
+
 ## 0.17.2 - 2026-08-22 21:15 UTC
 - Fixed deploys breaking with `UndefinedColumn` errors after adding a migration: the container now runs `alembic upgrade head` automatically on startup (new `docker-entrypoint.sh`), before the app itself starts, instead of requiring that as a separate manual step every deploy
 

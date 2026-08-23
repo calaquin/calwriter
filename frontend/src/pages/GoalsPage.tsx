@@ -9,7 +9,7 @@ import EditGoalModal from '../components/EditGoalModal'
 import ConfirmModal from '../components/ConfirmModal'
 import GoalCard from '../components/GoalCard'
 
-function applyOrder(goals: Goal[], order: number[]): Goal[] {
+function applyOrder(goals: Goal[], order: string[]): Goal[] {
   const orderIndex = new Map(order.map((id, i) => [id, i]))
   return [...goals].sort((a, b) => {
     const ai = orderIndex.has(a.id) ? orderIndex.get(a.id)! : Infinity
@@ -26,10 +26,10 @@ export default function GoalsPage() {
   const updateGoal = useUpdateGoal()
   const deleteGoal = useDeleteGoal()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [newGoalResource, setNewGoalResource] = useState<{ type: GoalResourceType; id: number } | undefined>()
+  const [newGoalResource, setNewGoalResource] = useState<{ type: GoalResourceType; id: string } | undefined>()
   const [showCreate, setShowCreate] = useState(false)
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null)
-  const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const [showHidden, setShowHidden] = useState(false)
 
   // Arriving via a resource's "⋯ > Goals" link carries which resource that
@@ -39,7 +39,7 @@ export default function GoalsPage() {
     const resourceType = searchParams.get('resourceType')
     const resourceId = searchParams.get('resourceId')
     if ((resourceType !== 'folder' && resourceType !== 'chapter') || !resourceId) return
-    setNewGoalResource({ type: resourceType, id: Number(resourceId) })
+    setNewGoalResource({ type: resourceType, id: resourceId })
     const next = new URLSearchParams(searchParams)
     next.delete('resourceType')
     next.delete('resourceId')
@@ -72,11 +72,15 @@ export default function GoalsPage() {
     updateGoal.mutate({ goalId: editingGoal.id, ...data }, { onSuccess: () => setEditingGoal(null) })
   }
 
-  function toggleHidden(goalId: number, isHidden: boolean) {
+  function toggleHidden(goalId: string, isHidden: boolean) {
     const current = settings?.hiddenGoalIds ?? []
     updateSettings.mutate({
       hiddenGoalIds: isHidden ? current.filter((id) => id !== goalId) : [...current, goalId],
     })
+  }
+
+  function togglePrimary(goalId: string) {
+    updateSettings.mutate({ primaryGoalId: settings?.primaryGoalId === goalId ? null : goalId })
   }
 
   return (
@@ -110,9 +114,11 @@ export default function GoalsPage() {
                 key={goal.id}
                 goal={goal}
                 hidden={false}
+                isPrimary={settings?.primaryGoalId === goal.id}
                 onEdit={() => setEditingGoal(goal)}
                 onDelete={() => setDeletingId(goal.id)}
                 onToggleHidden={() => toggleHidden(goal.id, false)}
+                onTogglePrimary={() => togglePrimary(goal.id)}
                 dragHandleProps={{
                   draggable: true,
                   onDragStart: () => onDragStart(idx),
@@ -147,9 +153,11 @@ export default function GoalsPage() {
                     key={goal.id}
                     goal={goal}
                     hidden
+                    isPrimary={settings?.primaryGoalId === goal.id}
                     onEdit={() => setEditingGoal(goal)}
                     onDelete={() => setDeletingId(goal.id)}
                     onToggleHidden={() => toggleHidden(goal.id, true)}
+                    onTogglePrimary={() => togglePrimary(goal.id)}
                   />
                 ))}
               </ul>
