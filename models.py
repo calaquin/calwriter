@@ -1,7 +1,7 @@
 import enum
+import uuid
 
 from sqlalchemy import (
-    BigInteger,
     Boolean,
     CheckConstraint,
     Computed,
@@ -15,9 +15,10 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from flask_login import UserMixin
-from sqlalchemy.dialects.postgresql import ARRAY, TSVECTOR
+from sqlalchemy.dialects.postgresql import ARRAY, TSVECTOR, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from extensions import db
@@ -26,7 +27,7 @@ from extensions import db
 class User(UserMixin, db.Model):
     __tablename__ = "users"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     username: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -42,26 +43,32 @@ class Folder(db.Model):
         UniqueConstraint("parent_id", "name", name="uq_folders_parent_name"),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    parent_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("folders.id", ondelete="CASCADE"), index=True
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("folders.id", ondelete="CASCADE"), index=True
     )
     # Denormalized pointer to the top-level ancestor's id (self, on a root row).
     # Lets every permission/listing query filter on book_id with no special-casing
     # for "am I the root folder" -- see permissions.py.
-    # NOT NULL + self-referential: when creating a new book (root row), pre-fetch
-    # the id via nextval('folders_id_seq') and INSERT id and book_id together in
-    # one statement (Postgres checks FK constraints post-statement, so a row
+    # NOT NULL + self-referential: when creating a new book (root row), generate
+    # the id client-side (uuid.uuid4()) and INSERT id and book_id together in one
+    # statement (Postgres checks FK constraints post-statement, so a row
     # referencing itself in a single INSERT is valid) rather than insert-then-update.
-    book_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("folders.id", ondelete="CASCADE"), nullable=False, index=True
+    book_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("folders.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    owner_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"))
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     author: Mapped[str] = mapped_column(Text, nullable=False, default="")
     color: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    # Whether a chapter's editor may show the book's color as a subtle
+    # background tint (see Chapter.show_book_color). Applies to this folder
+    # and everything nested under it -- turning it off on a sub-folder (or
+    # the book root itself) opts that whole branch out, same AND-of-ancestors
+    # semantics as chapter_effective_book_color in api.py.
+    show_book_color: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped["DateTime"] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped["DateTime"] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -101,13 +108,13 @@ class Chapter(db.Model):
         Index("ix_chapters_search_tsv", "search_tsv", postgresql_using="gin"),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    folder_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("folders.id", ondelete="CASCADE"), nullable=False, index=True
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    folder_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("folders.id", ondelete="CASCADE"), nullable=False, index=True
     )
     # Denormalized, same rationale as Folder.book_id.
-    book_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("folders.id", ondelete="CASCADE"), nullable=False, index=True
+    book_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("folders.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -123,6 +130,17 @@ class Chapter(db.Model):
     # "completed within this goal's current period", not just "is complete
     # right now". Cleared back to NULL if the user toggles it back off.
     completed_at: Mapped["DateTime | None"] = mapped_column(DateTime(timezone=True))
+    # Per-chapter opt-out of the book-color background tint (Chapter Settings).
+    # The tint only actually shows when this AND every ancestor folder's AND
+    # the book's own show_book_color are all true -- see
+    # api.chapter_effective_book_color.
+    show_book_color: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Lifetime count of ChapterVersion checkpoints ever written for this
+    # chapter, incremented in services.snapshot_chapter_version. Tracked
+    # separately from the ChapterVersion rows themselves because those are
+    # pruned down to the most recent 50 -- this column is the only accurate
+    # "revision count" once a chapter has been snapshotted more than that.
+    version_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     search_tsv: Mapped[str] = mapped_column(
         TSVECTOR,
         Computed(
@@ -143,9 +161,9 @@ class ChapterVersion(db.Model):
 
     __tablename__ = "chapter_versions"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    chapter_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False, index=True
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    chapter_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False, index=True
     )
     content_html: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped["DateTime"] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
@@ -163,16 +181,58 @@ class ChapterPresence(db.Model):
     __tablename__ = "chapter_presence"
     __table_args__ = (UniqueConstraint("chapter_id", "user_id", name="uq_chapter_presence_chapter_user"),)
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    chapter_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False, index=True
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    chapter_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     last_seen: Mapped["DateTime"] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    # Word count reported at the previous heartbeat -- lets the next heartbeat
+    # compute how many words were added this interval (see
+    # services.record_writing_activity). NULL on a brand-new session (nothing
+    # to diff against yet).
+    last_word_count: Mapped[int | None] = mapped_column(Integer)
 
     user = relationship("User")
+
+
+class ChapterWritingActivity(db.Model):
+    """Per-user, per-chapter, per-hour accumulation of active writing time and
+    words written, fed by the presence heartbeat (see
+    api.api_heartbeat_chapter_presence / services.record_writing_activity).
+    An interval only counts as "active" if the client reports an edit
+    actually happened since the last heartbeat -- open-but-idle/reading time
+    is never accumulated, which is what makes WPM/active-time stats exclude
+    downtime. `hour_of_day` (0-23, local to the server) plus `date` lets one
+    table serve both day-granularity stats (streak, trend, velocity -- group
+    by date, ignore hour) and the day-of-week/time-of-day heatmap (group by
+    date's weekday + hour_of_day, ignore the specific date)."""
+
+    __tablename__ = "chapter_writing_activity"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "chapter_id", "date", "hour_of_day",
+            name="uq_chapter_writing_activity_user_chapter_date_hour",
+        ),
+        CheckConstraint("hour_of_day >= 0 AND hour_of_day <= 23", name="chk_chapter_writing_activity_hour_range"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    chapter_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    date: Mapped["Date"] = mapped_column(Date, nullable=False)
+    hour_of_day: Mapped[int] = mapped_column(Integer, nullable=False)
+    active_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    words_written: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    user = relationship("User")
+    chapter = relationship("Chapter")
 
 
 class ShareRole(str, enum.Enum):
@@ -196,15 +256,15 @@ class ResourceShare(db.Model):
         UniqueConstraint("chapter_id", "user_id", name="uq_resource_shares_chapter_user"),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    folder_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("folders.id", ondelete="CASCADE"), index=True
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    folder_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("folders.id", ondelete="CASCADE"), index=True
     )
-    chapter_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("chapters.id", ondelete="CASCADE"), index=True
+    chapter_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("chapters.id", ondelete="CASCADE"), index=True
     )
-    user_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     role: Mapped[ShareRole] = mapped_column(Enum(ShareRole, name="share_role"), nullable=False)
     created_at: Mapped["DateTime"] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -222,13 +282,13 @@ class Invite(db.Model):
 
     __tablename__ = "invites"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
-    created_by_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     created_at: Mapped["DateTime"] = mapped_column(DateTime(timezone=True), server_default=func.now())
     expires_at: Mapped["DateTime"] = mapped_column(DateTime(timezone=True), nullable=False)
     used_at: Mapped["DateTime | None"] = mapped_column(DateTime(timezone=True))
-    used_by_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"))
+    used_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
 
     created_by = relationship("User", foreign_keys=[created_by_id])
     used_by = relationship("User", foreign_keys=[used_by_id])
@@ -240,7 +300,9 @@ class UserSettings(db.Model):
 
     __tablename__ = "user_settings"
 
-    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    # Mirrors users.id 1:1 -- always set explicitly to a User's own id by app
+    # code (see api.py/app.py), never independently generated.
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     dark_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     sidebar_color: Mapped[str] = mapped_column(String(16), nullable=False, default="#f0f0f0")
     text_color: Mapped[str] = mapped_column(String(16), nullable=False, default="#000000")
@@ -252,16 +314,22 @@ class UserSettings(db.Model):
     dark_bg_color: Mapped[str] = mapped_column(String(16), nullable=False, default="#222222")
     dark_toolbar_color: Mapped[str] = mapped_column(String(16), nullable=False, default="#555555")
     dark_editor_color: Mapped[str] = mapped_column(String(16), nullable=False, default="#444444")
-    open_book_ids: Mapped[list[int]] = mapped_column(ARRAY(BigInteger), nullable=False, default=list)
-    closed_folder_ids: Mapped[list[int]] = mapped_column(ARRAY(BigInteger), nullable=False, default=list)
-    closed_chapter_ids: Mapped[list[int]] = mapped_column(ARRAY(BigInteger), nullable=False, default=list)
+    open_book_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID(as_uuid=True)), nullable=False, default=list)
+    closed_folder_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID(as_uuid=True)), nullable=False, default=list)
+    closed_chapter_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID(as_uuid=True)), nullable=False, default=list)
     # Personal sidebar order for top-level books. Deliberately per-user (unlike
     # Folder.position, which drives shared within-book subfolder/chapter order):
     # different users see different accessible book sets, so one collaborator
     # dragging a book in their sidebar must not reorder another collaborator's view.
-    book_order: Mapped[list[int]] = mapped_column(ARRAY(BigInteger), nullable=False, default=list)
-    hidden_goal_ids: Mapped[list[int]] = mapped_column(ARRAY(BigInteger), nullable=False, default=list)
-    goal_order: Mapped[list[int]] = mapped_column(ARRAY(BigInteger), nullable=False, default=list)
+    book_order: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID(as_uuid=True)), nullable=False, default=list)
+    hidden_goal_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID(as_uuid=True)), nullable=False, default=list)
+    goal_order: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID(as_uuid=True)), nullable=False, default=list)
+    # At most one goal highlighted with a live progress bar in the sidebar --
+    # a single nullable column rather than a boolean flag on Goal, so "only
+    # one at a time" holds by construction instead of needing an extra
+    # uniqueness check. ondelete=SET NULL: deleting the goal just un-primaries
+    # it rather than blocking the delete or leaving a dangling reference.
+    primary_goal_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("goals.id", ondelete="SET NULL"))
 
     user = relationship("User")
 
@@ -299,10 +367,10 @@ class Goal(db.Model):
         ),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    folder_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("folders.id", ondelete="CASCADE"), index=True)
-    chapter_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("chapters.id", ondelete="CASCADE"), index=True)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    folder_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("folders.id", ondelete="CASCADE"), index=True)
+    chapter_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("chapters.id", ondelete="CASCADE"), index=True)
     # Optional user-chosen label, e.g. "First draft push". Empty string (not
     # NULL, matching Folder/Chapter.description) means none was given, in
     # which case the UI falls back to a generated description like "500
@@ -339,8 +407,8 @@ class GoalPeriodHistory(db.Model):
 
     __tablename__ = "goal_period_history"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    goal_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("goals.id", ondelete="CASCADE"), nullable=False, index=True)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    goal_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("goals.id", ondelete="CASCADE"), nullable=False, index=True)
     period_start: Mapped["Date"] = mapped_column(Date, nullable=False)
     period_end: Mapped["Date"] = mapped_column(Date, nullable=False)
     # Snapshot target/goal_type at the time, in case the goal's own target

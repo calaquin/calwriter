@@ -55,16 +55,22 @@ interface DragHandleProps {
 export default function GoalCard({
   goal,
   hidden,
+  isPrimary,
   onEdit,
   onDelete,
   onToggleHidden,
+  onTogglePrimary,
   dragHandleProps,
 }: {
   goal: Goal
   hidden: boolean
+  /** Whether this is the one goal currently pinned to the sidebar's live
+   * progress bar (see UserSettings.primaryGoalId) -- at most one at a time. */
+  isPrimary: boolean
   onEdit: () => void
   onDelete: () => void
   onToggleHidden: () => void
+  onTogglePrimary: () => void
   /** Present only for goals in the draggable visible list. */
   dragHandleProps?: DragHandleProps
 }) {
@@ -80,6 +86,11 @@ export default function GoalCard({
       <div className="goal-card-main">
         {goal.name && <p className="goal-card-name">{goal.name}</p>}
         <div className="goal-card-heading">
+          {isPrimary && (
+            <span className="goal-card-badge goal-card-badge-primary" title="Shown as the sidebar's live progress bar">
+              ★ Primary
+            </span>
+          )}
           <span className="goal-card-badge">{resourceBadge(goal)}</span>
           {goal.resourceBreadcrumb.map((crumb) => (
             <span key={crumb.id} className="goal-card-crumb">
@@ -135,6 +146,14 @@ export default function GoalCard({
         )}
       </div>
       <div className="goal-card-actions">
+        <button
+          type="button"
+          className={`folder-action${isPrimary ? ' primary' : ''}`}
+          onClick={onTogglePrimary}
+          title={isPrimary ? "Remove from the sidebar's live progress bar" : "Show as the sidebar's live progress bar"}
+        >
+          {isPrimary ? '★ Primary' : 'Set primary'}
+        </button>
         {goal.cadence && (
           <Link className="folder-action" to={`/goals/${goal.id}/history`}>
             History

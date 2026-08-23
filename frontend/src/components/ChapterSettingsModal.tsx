@@ -15,7 +15,7 @@ export default function ChapterSettingsModal({
   chapter: ChapterDetail
   saving: boolean
   onClose: () => void
-  onSave: (data: { name: string; description: string }) => void
+  onSave: (data: { name: string; description: string; showBookColor: boolean }) => void
   onDelete: () => void
   onLeave?: () => void
   onToggleComplete?: (completed: boolean) => void
@@ -23,6 +23,7 @@ export default function ChapterSettingsModal({
 }) {
   const [name, setName] = useState(chapter.name)
   const [description, setDescription] = useState(chapter.description)
+  const [showBookColor, setShowBookColor] = useState(chapter.showBookColor)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -38,13 +39,14 @@ export default function ChapterSettingsModal({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [onClose])
 
-  const changed = name.trim() !== chapter.name || description !== chapter.description
+  const changed =
+    name.trim() !== chapter.name || description !== chapter.description || showBookColor !== chapter.showBookColor
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
     const trimmed = name.trim()
     if (!trimmed || !changed) return
-    onSave({ name: trimmed, description })
+    onSave({ name: trimmed, description, showBookColor })
   }
 
   return (
@@ -83,6 +85,15 @@ export default function ChapterSettingsModal({
             rows={3}
             disabled={!canEdit}
           />
+          <label className="chapter-complete-toggle" style={{ marginTop: '14px' }}>
+            <input
+              type="checkbox"
+              checked={showBookColor}
+              onChange={(e) => setShowBookColor(e.target.checked)}
+              disabled={!canEdit}
+            />
+            Use book color as a subtle editor background
+          </label>
           {canEdit && (
             <button
               type="submit"

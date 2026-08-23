@@ -2,6 +2,7 @@
 import calendar
 import datetime
 import json
+import uuid
 import zipfile
 from io import BytesIO
 
@@ -12,16 +13,28 @@ import bleach
 from bleach.css_sanitizer import CSSSanitizer
 from flask_login import current_user
 
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
 from extensions import db
-from models import UserSettings, Folder, Chapter, ChapterVersion, Goal, GoalType, GoalPeriodHistory
+from models import UserSettings, Folder, Chapter, ChapterVersion, ChapterWritingActivity, Goal, GoalType, GoalPeriodHistory
 from permissions import accessible_book_ids
 
-VERSION = "0.17.2"
+VERSION = "0.17.5"
 
 CHAPTER_VERSION_MIN_INTERVAL = datetime.timedelta(minutes=5)
 CHAPTER_VERSION_RETENTION = 50
 
 STATS_STALE_GAP = datetime.timedelta(days=7)
+
+# Caps how much of a single heartbeat gap gets credited as "active" writing
+# time -- 3x the 20s client heartbeat interval, enough to absorb one missed
+# beat without letting a laptop-sleep/backgrounded-tab gap (which can be
+# hours) get counted as active time once the next heartbeat lands.
+MAX_HEARTBEAT_ELAPSED = datetime.timedelta(seconds=60)
+
+# Days without writing activity before an incomplete chapter is surfaced as
+# "stale" on its folder's stats page.
+STALE_CHAPTER_DAYS = 14
 
 
 def prune_words_per_day(words_per_day: dict) -> dict:
@@ -357,7 +370,7 @@ def render_folder_docx(folder_name: str, chapters: list) -> Document:
     return doc
 
 
-def folder_chapters_recursive(folder_id: int) -> list:
+def folder_chapters_recursive(folder_id: uuid.UUID) -> list:
     """All chapters in a folder and its descendants (including nested
     sub-folders), in a stable read order."""
     folder_ids = descendant_folder_ids(folder_id)
@@ -377,7 +390,7 @@ def get_user_settings() -> UserSettings:
     return settings
 
 
-def descendant_folder_ids(root_folder_id: int) -> list:
+def descendant_folder_ids(root_folder_id: uuid.UUID) -> list:
     ids = [root_folder_id]
     frontier = [root_folder_id]
     while frontier:
@@ -412,6 +425,96 @@ def resource_completed_chapter_count(folder: Folder, period_start: datetime.date
         Chapter.completed_at.isnot(None),
         Chapter.completed_at >= cutoff,
     ).count()
+
+
+def record_writing_activity(chapter: Chapter, user_id: uuid.UUID, elapsed_seconds: float, words_delta: int) -> None:
+    """Accumulate one heartbeat interval's worth of active writing time/words
+    into ChapterWritingActivity, for the (user, chapter, today, this hour)
+    bucket. Uses a real Postgres upsert (ON CONFLICT DO UPDATE) rather than
+    this codebase's usual select-then-increment-then-write pattern (see
+    ChapterPresence's heartbeat handling) -- unlike that pattern, this table
+    is routinely hit by concurrent heartbeats from *different* chapters
+    landing on the same row (a user with two tabs open shares one
+    (user, day, hour) heatmap-relevant slice), so a non-atomic
+    read-modify-write would silently lose intervals."""
+    if elapsed_seconds <= 0 and words_delta <= 0:
+        return
+    now = datetime.datetime.now(datetime.timezone.utc)
+    stmt = pg_insert(ChapterWritingActivity).values(
+        user_id=user_id,
+        chapter_id=chapter.id,
+        date=now.date(),
+        hour_of_day=now.hour,
+        active_seconds=int(elapsed_seconds),
+        words_written=words_delta,
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[
+            ChapterWritingActivity.user_id,
+            ChapterWritingActivity.chapter_id,
+            ChapterWritingActivity.date,
+            ChapterWritingActivity.hour_of_day,
+        ],
+        set_={
+            "active_seconds": ChapterWritingActivity.active_seconds + stmt.excluded.active_seconds,
+            "words_written": ChapterWritingActivity.words_written + stmt.excluded.words_written,
+        },
+    )
+    db.session.execute(stmt)
+
+
+def compute_writing_streak(user_id: uuid.UUID) -> dict:
+    """Current and longest consecutive-day streaks of real writing activity
+    (any words_written > 0 that day), personal to `user_id` -- matches how
+    Goal is personal, not resource-shared."""
+    rows = (
+        db.session.query(ChapterWritingActivity.date, db.func.sum(ChapterWritingActivity.words_written))
+        .filter(ChapterWritingActivity.user_id == user_id)
+        .group_by(ChapterWritingActivity.date)
+        .having(db.func.sum(ChapterWritingActivity.words_written) > 0)
+        .all()
+    )
+    active_days = sorted(d for d, _ in rows)
+    if not active_days:
+        return {"current": 0, "longest": 0}
+
+    longest = 1
+    run = 1
+    for prev, cur in zip(active_days, active_days[1:]):
+        if (cur - prev).days == 1:
+            run += 1
+        else:
+            longest = max(longest, run)
+            run = 1
+    longest = max(longest, run)
+
+    today = datetime.date.today()
+    current = 0
+    if active_days[-1] in (today, today - datetime.timedelta(days=1)):
+        current = 1
+        for i in range(len(active_days) - 1, 0, -1):
+            if (active_days[i] - active_days[i - 1]).days == 1:
+                current += 1
+            else:
+                break
+    return {"current": current, "longest": longest}
+
+
+def chapter_last_activity_date(chapter: Chapter) -> datetime.date | None:
+    """Best-known date of real writing activity on `chapter`, resource-level
+    (every collaborator's activity, no user filter -- matches word-count
+    scoping elsewhere). Falls back to updated_at's date for a chapter with no
+    ChapterWritingActivity rows yet (the table starts empty at deploy, and
+    updated_at is bumped by any column change, not just writing, but it's the
+    best signal available until real activity accumulates)."""
+    latest = (
+        db.session.query(db.func.max(ChapterWritingActivity.date))
+        .filter(ChapterWritingActivity.chapter_id == chapter.id)
+        .scalar()
+    )
+    if latest is not None:
+        return latest
+    return chapter.updated_at.date() if chapter.updated_at else None
 
 
 def _goal_period_final_current(goal: Goal, period_start: datetime.date, period_end: datetime.date) -> int:
@@ -501,7 +604,7 @@ def next_folder_position(parent_id) -> int:
     return (q.scalar() or -1) + 1
 
 
-def next_chapter_position(folder_id: int) -> int:
+def next_chapter_position(folder_id: uuid.UUID) -> int:
     max_pos = db.session.query(db.func.max(Chapter.position)).filter(Chapter.folder_id == folder_id).scalar()
     return (max_pos or -1) + 1
 
@@ -526,6 +629,7 @@ def snapshot_chapter_version(chapter: Chapter, *, force: bool = False) -> None:
             if now - latest_created_at < CHAPTER_VERSION_MIN_INTERVAL:
                 return
     db.session.add(ChapterVersion(chapter_id=chapter.id, content_html=chapter.content_html))
+    chapter.version_count += 1
     db.session.flush()
     stale_ids = [
         v.id
@@ -538,12 +642,12 @@ def snapshot_chapter_version(chapter: Chapter, *, force: bool = False) -> None:
         ChapterVersion.query.filter(ChapterVersion.id.in_(stale_ids)).delete(synchronize_session=False)
 
 
-def create_book(name: str, owner_id: int, description: str = '', author: str = '', color: str = '') -> Folder:
+def create_book(name: str, owner_id: uuid.UUID, description: str = '', author: str = '', color: str = '') -> Folder:
     """Insert a new top-level book. book_id is self-referential (NOT NULL FK to
-    folders.id), so pre-fetch the id from the sequence and insert id == book_id
+    folders.id), so generate the id client-side and insert id == book_id
     together in one statement -- Postgres checks FK constraints post-statement,
     so a row referencing itself in a single INSERT is valid."""
-    new_id = db.session.execute(db.text("SELECT nextval('folders_id_seq')")).scalar()
+    new_id = uuid.uuid4()
     folder = Folder(
         id=new_id,
         book_id=new_id,
@@ -609,7 +713,7 @@ def export_books_zip() -> BytesIO:
     return mem
 
 
-def deserialize_folder(data: dict, parent: Folder, book_id: int, position: int) -> Folder:
+def deserialize_folder(data: dict, parent: Folder, book_id: uuid.UUID, position: int) -> Folder:
     folder = Folder(
         parent_id=parent.id,
         book_id=book_id,
@@ -636,7 +740,7 @@ def deserialize_folder(data: dict, parent: Folder, book_id: int, position: int) 
     return folder
 
 
-def import_books_zip(file_storage, owner_id: int) -> int:
+def import_books_zip(file_storage, owner_id: uuid.UUID) -> int:
     """Import a .calwdb archive. Always creates new books owned by owner_id --
     never merges/overwrites existing books by name. Returns count imported.
     Raises ValueError on invalid archive contents (caller decides how to report)."""

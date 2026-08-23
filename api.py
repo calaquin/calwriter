@@ -3,6 +3,7 @@ name-path -- this is what lets routing avoid any path-traversal concerns."""
 import datetime
 import os
 import secrets
+import uuid
 from io import BytesIO
 
 from flask import Blueprint, jsonify, request, send_file
@@ -18,6 +19,7 @@ from models import (
     Chapter,
     ChapterVersion,
     ChapterPresence,
+    ChapterWritingActivity,
     ResourceShare,
     ShareRole,
     Invite,
@@ -65,6 +67,11 @@ from services import (
     resource_word_count,
     resource_completed_chapter_count,
     advance_date_by_cadence,
+    record_writing_activity,
+    compute_writing_streak,
+    chapter_last_activity_date,
+    MAX_HEARTBEAT_ELAPSED,
+    STALE_CHAPTER_DAYS,
 )
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
@@ -72,6 +79,16 @@ api_bp = Blueprint('api', __name__, url_prefix='/api')
 
 def error(message, status=400):
     return jsonify({'error': message}), status
+
+
+def parse_uuid(value) -> uuid.UUID | None:
+    """Parses an id supplied in a JSON request body (unlike a path segment,
+    never validated by a route converter). Returns None on anything that
+    isn't a well-formed UUID string, for the caller to turn into a clean 400."""
+    try:
+        return uuid.UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        return None
 
 
 def export_filename(book: Folder, name: str, ext: str) -> str:
@@ -103,6 +120,7 @@ def book_to_dict(book: Folder) -> dict:
         'description': book.description,
         'author': book.author,
         'color': book.color,
+        'showBookColor': book.show_book_color,
         'role': role_for_folder(book),
         'createdAt': book.created_at.isoformat(),
         'updatedAt': book.updated_at.isoformat(),
@@ -123,6 +141,7 @@ def folder_to_dict(folder: Folder) -> dict:
         'description': folder.description,
         'author': folder.author,
         'color': folder.color,
+        'showBookColor': folder.show_book_color,
         'position': folder.position,
         'role': role_for_folder(folder),
         # Is there a share on this exact folder (not an ancestor, not
@@ -145,10 +164,28 @@ def chapter_summary_dict(chapter: Chapter) -> dict:
         'position': chapter.position,
         'updatedAt': chapter.updated_at.isoformat(),
         'completedAt': chapter.completed_at.isoformat() if chapter.completed_at else None,
+        'showBookColor': chapter.show_book_color,
         'role': role_for_chapter(chapter),
         'directShare': ResourceShare.query.filter_by(chapter_id=chapter.id, user_id=current_user.id).first()
         is not None,
     }
+
+
+def chapter_effective_book_color(chapter: Chapter) -> str | None:
+    """The color the chapter's editor should tint its background with, or
+    None if it shouldn't be tinted at all. Requires the chapter's own
+    show_book_color AND every ancestor folder's AND the book root's to all
+    be true -- any single level along the chain can opt the chapter out."""
+    if not chapter.show_book_color:
+        return None
+    node = db.session.get(Folder, chapter.folder_id)
+    while node is not None:
+        if not node.show_book_color:
+            return None
+        if node.parent_id is None:
+            return node.color or None
+        node = db.session.get(Folder, node.parent_id)
+    return None
 
 
 def share_dict(share: ResourceShare) -> dict:
@@ -159,6 +196,7 @@ def chapter_detail_dict(chapter: Chapter) -> dict:
     d = chapter_summary_dict(chapter)
     d['contentHtml'] = chapter.content_html
     d['notesText'] = chapter.notes_text
+    d['bookColor'] = chapter_effective_book_color(chapter)
     return d
 
 
@@ -286,6 +324,7 @@ def settings_to_dict(settings: UserSettings) -> dict:
         'bookOrder': settings.book_order,
         'hiddenGoalIds': settings.hidden_goal_ids,
         'goalOrder': settings.goal_order,
+        'primaryGoalId': settings.primary_goal_id,
     }
 
 
@@ -446,6 +485,146 @@ def api_list_books():
     return jsonify([book_to_dict(b) for b in ordered_accessible_books()])
 
 
+# ------------------------------------------------------------- stats --
+#
+# Personal (filter by user_id) vs. resource-level (summed across every
+# collaborator) scoping matches the split already established elsewhere in
+# this app: Goal is explicitly per-user (see its docstring), while word
+# counts have no per-author attribution anywhere. Streak/heatmap/WPM/active-
+# time are personal ("when do *I* write"); trend/busiest-resource/velocity/
+# WPM-per-chapter/revision-count/word-spread are resource-level facts about
+# the writing itself.
+
+
+def goal_hit_rate_dict(user_id) -> dict:
+    """Percent of a user's historical recurring-goal periods that were
+    achieved, across every goal they own. GoalPeriodHistory only records the
+    first elapsed period per lazy read (see advance_goal_period's docstring),
+    so this is not a complete calendar of every period, only the ones
+    actually observed -- and starts at zero rows for everyone until periods
+    elapse post-deploy."""
+    rows = (
+        GoalPeriodHistory.query.join(Goal, GoalPeriodHistory.goal_id == Goal.id)
+        .filter(Goal.user_id == user_id)
+        .all()
+    )
+    total = len(rows)
+    achieved = sum(1 for r in rows if r.achieved)
+    percent = round(achieved / total * 100) if total > 0 else None
+    return {'achieved': achieved, 'total': total, 'percent': percent}
+
+
+def _week_bounds(offset_weeks: int) -> tuple:
+    """(start, end) dates, inclusive, of the week `offset_weeks` weeks back
+    from the current one (0 = this week, 1 = last week), Monday-anchored."""
+    today = datetime.date.today()
+    this_monday = today - datetime.timedelta(days=today.weekday())
+    start = this_monday - datetime.timedelta(weeks=offset_weeks)
+    return start, start + datetime.timedelta(days=6)
+
+
+def week_over_week_words_dict(chapter_ids: list) -> dict:
+    if not chapter_ids:
+        return {'thisWeek': 0, 'lastWeek': 0, 'percentChange': None}
+    this_start, this_end = _week_bounds(0)
+    last_start, last_end = _week_bounds(1)
+
+    def sum_words(start, end) -> int:
+        return int(
+            db.session.query(db.func.coalesce(db.func.sum(ChapterWritingActivity.words_written), 0))
+            .filter(
+                ChapterWritingActivity.chapter_id.in_(chapter_ids),
+                ChapterWritingActivity.date >= start,
+                ChapterWritingActivity.date <= end,
+            )
+            .scalar()
+        )
+
+    this_week = sum_words(this_start, this_end)
+    last_week = sum_words(last_start, last_end)
+    percent_change = round((this_week - last_week) / last_week * 100) if last_week > 0 else None
+    return {'thisWeek': this_week, 'lastWeek': last_week, 'percentChange': percent_change}
+
+
+def writing_heatmap(user_id) -> list:
+    """Active seconds by day-of-week and hour-of-day, personal to `user_id`."""
+    rows = (
+        db.session.query(
+            db.func.extract('dow', ChapterWritingActivity.date),
+            ChapterWritingActivity.hour_of_day,
+            db.func.sum(ChapterWritingActivity.active_seconds),
+        )
+        .filter(ChapterWritingActivity.user_id == user_id)
+        .group_by(db.func.extract('dow', ChapterWritingActivity.date), ChapterWritingActivity.hour_of_day)
+        .all()
+    )
+    # Postgres EXTRACT(DOW) is 0=Sunday..6=Saturday; normalize to Python's
+    # date.weekday() convention (0=Monday..6=Sunday) so the frontend only
+    # ever deals with one convention.
+    return [
+        {'dayOfWeek': (int(dow) + 6) % 7, 'hour': hour, 'activeSeconds': int(seconds)}
+        for dow, hour, seconds in rows
+    ]
+
+
+def busiest_resource_dict(chapter_ids: list, days: int):
+    if not chapter_ids:
+        return None
+    query = db.session.query(
+        ChapterWritingActivity.chapter_id, db.func.sum(ChapterWritingActivity.active_seconds)
+    ).filter(ChapterWritingActivity.chapter_id.in_(chapter_ids))
+    if days > 0:
+        cutoff = datetime.date.today() - datetime.timedelta(days=days - 1)
+        query = query.filter(ChapterWritingActivity.date >= cutoff)
+    row = (
+        query.group_by(ChapterWritingActivity.chapter_id)
+        .order_by(db.func.sum(ChapterWritingActivity.active_seconds).desc())
+        .first()
+    )
+    if row is None:
+        return None
+    chapter_id, active_seconds = row
+    chapter = db.session.get(Chapter, chapter_id)
+    if chapter is None:
+        return None
+    return {'chapterId': chapter.id, 'name': chapter.name, 'activeSeconds': int(active_seconds)}
+
+
+def writing_wpm(chapter_ids: list, user_id=None) -> float:
+    if not chapter_ids:
+        return 0.0
+    query = db.session.query(
+        db.func.coalesce(db.func.sum(ChapterWritingActivity.words_written), 0),
+        db.func.coalesce(db.func.sum(ChapterWritingActivity.active_seconds), 0),
+    ).filter(ChapterWritingActivity.chapter_id.in_(chapter_ids))
+    if user_id is not None:
+        query = query.filter(ChapterWritingActivity.user_id == user_id)
+    words, seconds = query.first()
+    return round(words / (seconds / 60), 1) if seconds > 0 else 0.0
+
+
+def total_active_seconds_for(chapter_ids: list, user_id=None) -> int:
+    if not chapter_ids:
+        return 0
+    query = db.session.query(db.func.coalesce(db.func.sum(ChapterWritingActivity.active_seconds), 0)).filter(
+        ChapterWritingActivity.chapter_id.in_(chapter_ids)
+    )
+    if user_id is not None:
+        query = query.filter(ChapterWritingActivity.user_id == user_id)
+    return int(query.scalar())
+
+
+def words_written_in_window(chapter_ids: list, days: int) -> int:
+    if not chapter_ids:
+        return 0
+    cutoff = datetime.date.today() - datetime.timedelta(days=days - 1)
+    return int(
+        db.session.query(db.func.coalesce(db.func.sum(ChapterWritingActivity.words_written), 0))
+        .filter(ChapterWritingActivity.chapter_id.in_(chapter_ids), ChapterWritingActivity.date >= cutoff)
+        .scalar()
+    )
+
+
 @api_bp.route('/stats')
 def api_workspace_stats():
     """Same shape as the per-folder/per-chapter stats endpoints, aggregated
@@ -454,6 +633,7 @@ def api_workspace_stats():
     days = int(request.args.get('days', 7))
     book_ids = accessible_book_ids()
     chapters = Chapter.query.filter(Chapter.book_id.in_(book_ids)).all() if book_ids else []
+    chapter_ids = [c.id for c in chapters]
     total_words = 0
     words_per_day = {}
     for chapter in chapters:
@@ -464,7 +644,17 @@ def api_workspace_stats():
     if days > 0:
         cutoff = (datetime.date.today() - datetime.timedelta(days=days - 1)).isoformat()
         words_per_day = {d: c for d, c in words_per_day.items() if d >= cutoff}
-    return jsonify({'totalWords': total_words, 'wordsPerDay': prune_words_per_day(words_per_day)})
+    return jsonify({
+        'totalWords': total_words,
+        'wordsPerDay': prune_words_per_day(words_per_day),
+        'streak': compute_writing_streak(current_user.id),
+        'goalHitRate': goal_hit_rate_dict(current_user.id),
+        'weekOverWeekWords': week_over_week_words_dict(chapter_ids),
+        'heatmap': writing_heatmap(current_user.id),
+        'busiestResource': busiest_resource_dict(chapter_ids, days),
+        'avgWpm': writing_wpm(chapter_ids, user_id=current_user.id),
+        'totalActiveSeconds': total_active_seconds_for(chapter_ids, user_id=current_user.id),
+    })
 
 
 @api_bp.route('/books', methods=['POST'])
@@ -482,13 +672,13 @@ def api_create_book():
     return jsonify(book_to_dict(book)), 201
 
 
-@api_bp.route('/books/<int:book_id>')
+@api_bp.route('/books/<uuid:book_id>')
 def api_get_book(book_id):
     book = require_book_access(book_id, 'viewer')
     return jsonify(book_to_dict(book))
 
 
-@api_bp.route('/books/<int:book_id>', methods=['PATCH'])
+@api_bp.route('/books/<uuid:book_id>', methods=['PATCH'])
 def api_update_book(book_id):
     book = require_book_access(book_id, 'editor')
     data = request.get_json(silent=True) or {}
@@ -505,11 +695,13 @@ def api_update_book(book_id):
         book.author = data['author']
     if 'color' in data:
         book.color = data['color']
+    if 'showBookColor' in data:
+        book.show_book_color = bool(data['showBookColor'])
     db.session.commit()
     return jsonify(book_to_dict(book))
 
 
-@api_bp.route('/books/<int:book_id>', methods=['DELETE'])
+@api_bp.route('/books/<uuid:book_id>', methods=['DELETE'])
 def api_delete_book(book_id):
     book = require_book_access(book_id, 'owner')
     db.session.delete(book)
@@ -545,7 +737,7 @@ def api_create_book_wizard():
     return jsonify(book_to_dict(book)), 201
 
 
-@api_bp.route('/books/<int:book_id>/export.docx')
+@api_bp.route('/books/<uuid:book_id>/export.docx')
 def api_export_book_docx(book_id):
     book = require_book_access(book_id, 'viewer')
     chapters = Chapter.query.filter_by(folder_id=book.id).order_by(Chapter.position, Chapter.created_at).all()
@@ -585,7 +777,7 @@ def _add_share(existing_query, make_share, book: Folder):
     return share, None
 
 
-@api_bp.route('/folders/<int:folder_id>/shares')
+@api_bp.route('/folders/<uuid:folder_id>/shares')
 def api_list_folder_shares(folder_id):
     folder = Folder.query.get_or_404(folder_id)
     require_folder_share_management(folder)
@@ -593,7 +785,7 @@ def api_list_folder_shares(folder_id):
     return jsonify([share_dict(r) for r in rows])
 
 
-@api_bp.route('/folders/<int:folder_id>/shares', methods=['POST'])
+@api_bp.route('/folders/<uuid:folder_id>/shares', methods=['POST'])
 def api_add_folder_share(folder_id):
     folder = Folder.query.get_or_404(folder_id)
     require_folder_share_management(folder)
@@ -608,7 +800,7 @@ def api_add_folder_share(folder_id):
     return jsonify(share_dict(share)), 201
 
 
-@api_bp.route('/folders/<int:folder_id>/shares/<int:user_id>', methods=['PATCH'])
+@api_bp.route('/folders/<uuid:folder_id>/shares/<uuid:user_id>', methods=['PATCH'])
 def api_update_folder_share(folder_id, user_id):
     folder = Folder.query.get_or_404(folder_id)
     require_folder_share_management(folder)
@@ -624,7 +816,7 @@ def api_update_folder_share(folder_id, user_id):
     return jsonify(share_dict(share))
 
 
-@api_bp.route('/folders/<int:folder_id>/shares/<int:user_id>', methods=['DELETE'])
+@api_bp.route('/folders/<uuid:folder_id>/shares/<uuid:user_id>', methods=['DELETE'])
 def api_remove_folder_share(folder_id, user_id):
     folder = Folder.query.get_or_404(folder_id)
     # A share can always be revoked by whoever manages it, or by the person
@@ -639,7 +831,7 @@ def api_remove_folder_share(folder_id, user_id):
     return ('', 204)
 
 
-@api_bp.route('/chapters/<int:chapter_id>/shares')
+@api_bp.route('/chapters/<uuid:chapter_id>/shares')
 def api_list_chapter_shares(chapter_id):
     chapter = Chapter.query.get_or_404(chapter_id)
     require_chapter_share_management(chapter)
@@ -647,7 +839,7 @@ def api_list_chapter_shares(chapter_id):
     return jsonify([share_dict(r) for r in rows])
 
 
-@api_bp.route('/chapters/<int:chapter_id>/shares', methods=['POST'])
+@api_bp.route('/chapters/<uuid:chapter_id>/shares', methods=['POST'])
 def api_add_chapter_share(chapter_id):
     chapter = Chapter.query.get_or_404(chapter_id)
     require_chapter_share_management(chapter)
@@ -662,7 +854,7 @@ def api_add_chapter_share(chapter_id):
     return jsonify(share_dict(share)), 201
 
 
-@api_bp.route('/chapters/<int:chapter_id>/shares/<int:user_id>', methods=['PATCH'])
+@api_bp.route('/chapters/<uuid:chapter_id>/shares/<uuid:user_id>', methods=['PATCH'])
 def api_update_chapter_share(chapter_id, user_id):
     chapter = Chapter.query.get_or_404(chapter_id)
     require_chapter_share_management(chapter)
@@ -678,7 +870,7 @@ def api_update_chapter_share(chapter_id, user_id):
     return jsonify(share_dict(share))
 
 
-@api_bp.route('/chapters/<int:chapter_id>/shares/<int:user_id>', methods=['DELETE'])
+@api_bp.route('/chapters/<uuid:chapter_id>/shares/<uuid:user_id>', methods=['DELETE'])
 def api_remove_chapter_share(chapter_id, user_id):
     chapter = Chapter.query.get_or_404(chapter_id)
     if user_id != current_user.id:
@@ -721,7 +913,7 @@ def api_shared_with_me():
 
 # ------------------------------------------------------------- folders --
 
-@api_bp.route('/folders/<int:folder_id>')
+@api_bp.route('/folders/<uuid:folder_id>')
 def api_get_folder(folder_id):
     folder = require_folder_access(folder_id, 'viewer')
     subfolders = Folder.query.filter_by(parent_id=folder.id).order_by(Folder.position, Folder.created_at).all()
@@ -732,7 +924,7 @@ def api_get_folder(folder_id):
     return jsonify(d)
 
 
-@api_bp.route('/folders/<int:folder_id>/tree-ids')
+@api_bp.route('/folders/<uuid:folder_id>/tree-ids')
 def api_folder_tree_ids(folder_id):
     """Every sub-folder and chapter id nested under this folder (not
     including the folder itself) -- for "Open all", which un-hides a whole
@@ -746,7 +938,7 @@ def api_folder_tree_ids(folder_id):
     return jsonify({'folderIds': folder_ids, 'chapterIds': chapter_ids})
 
 
-@api_bp.route('/folders/<int:folder_id>/tree')
+@api_bp.route('/folders/<uuid:folder_id>/tree')
 def api_folder_tree(folder_id):
     """Every sub-folder and chapter nested under this folder (not including
     the folder itself), flattened depth-first with a name and depth on each
@@ -769,7 +961,7 @@ def api_folder_tree(folder_id):
     return jsonify(entries)
 
 
-@api_bp.route('/folders/<int:folder_id>/stats')
+@api_bp.route('/folders/<uuid:folder_id>/stats')
 def api_folder_stats(folder_id):
     folder = require_folder_access(folder_id, 'viewer')
     days = int(request.args.get('days', 7))
@@ -777,22 +969,65 @@ def api_folder_stats(folder_id):
     chapters = Chapter.query.filter(Chapter.folder_id.in_(folder_ids)).all()
     total_words = 0
     words_per_day = {}
+    word_counts = {}
     for chapter in chapters:
         count = len(html_to_text(chapter.content_html).split())
+        word_counts[chapter.id] = count
         total_words += count
         day = chapter.updated_at.date().isoformat()
         words_per_day[day] = words_per_day.get(day, 0) + count
     if days > 0:
         cutoff = (datetime.date.today() - datetime.timedelta(days=days - 1)).isoformat()
         words_per_day = {d: c for d, c in words_per_day.items() if d >= cutoff}
-    return jsonify({'totalWords': total_words, 'wordsPerDay': prune_words_per_day(words_per_day)})
+
+    # "Spread within a sub-folder" reads as sibling comparison -- direct
+    # children only, not the full recursive subtree.
+    direct_counts = [word_counts[c.id] for c in chapters if c.folder_id == folder.id]
+    word_count_spread = (
+        {'min': min(direct_counts), 'max': max(direct_counts), 'avg': round(sum(direct_counts) / len(direct_counts))}
+        if direct_counts else None
+    )
+
+    stale_cutoff = datetime.date.today() - datetime.timedelta(days=STALE_CHAPTER_DAYS)
+    stale_chapters = []
+    for chapter in chapters:
+        if chapter.completed_at is not None:
+            continue
+        last_activity = chapter_last_activity_date(chapter)
+        if last_activity is not None and last_activity <= stale_cutoff:
+            stale_chapters.append({
+                'id': chapter.id,
+                'name': chapter.name,
+                'daysSinceActivity': (datetime.date.today() - last_activity).days,
+            })
+    stale_chapters.sort(key=lambda c: -c['daysSinceActivity'])
+
+    chapter_breakdown = [
+        {
+            'id': chapter.id,
+            'name': chapter.name,
+            'versionCount': chapter.version_count,
+            'recentVelocity7d': words_written_in_window([chapter.id], 7),
+            'recentVelocity30d': words_written_in_window([chapter.id], 30),
+            'wpm': writing_wpm([chapter.id]),
+        }
+        for chapter in chapters
+    ]
+
+    return jsonify({
+        'totalWords': total_words,
+        'wordsPerDay': prune_words_per_day(words_per_day),
+        'staleChapters': stale_chapters,
+        'wordCountSpread': word_count_spread,
+        'chapters': chapter_breakdown,
+    })
 
 
 @api_bp.route('/folders', methods=['POST'])
 def api_create_folder():
     data = request.get_json(silent=True) or {}
-    parent_id = data.get('parentId')
     name = clean_name(data.get('name', ''))
+    parent_id = parse_uuid(data.get('parentId'))
     if not parent_id or not name:
         return error('parentId and name are required')
     parent = require_folder_access(parent_id, 'editor')
@@ -810,7 +1045,7 @@ def api_create_folder():
     return jsonify(folder_to_dict(folder)), 201
 
 
-@api_bp.route('/folders/<int:folder_id>', methods=['PATCH'])
+@api_bp.route('/folders/<uuid:folder_id>', methods=['PATCH'])
 def api_update_folder(folder_id):
     folder = require_folder_access(folder_id, 'editor')
     data = request.get_json(silent=True) or {}
@@ -825,11 +1060,13 @@ def api_update_folder(folder_id):
         folder.description = data['description']
     if 'author' in data:
         folder.author = data['author']
+    if 'showBookColor' in data:
+        folder.show_book_color = bool(data['showBookColor'])
     db.session.commit()
     return jsonify(folder_to_dict(folder))
 
 
-@api_bp.route('/folders/<int:folder_id>', methods=['DELETE'])
+@api_bp.route('/folders/<uuid:folder_id>', methods=['DELETE'])
 def api_delete_folder(folder_id):
     folder = require_folder_access(folder_id, 'editor')
     db.session.delete(folder)
@@ -837,7 +1074,7 @@ def api_delete_folder(folder_id):
     return ('', 204)
 
 
-@api_bp.route('/folders/<int:folder_id>/export.docx')
+@api_bp.route('/folders/<uuid:folder_id>/export.docx')
 def api_export_folder_docx(folder_id):
     folder = require_folder_access(folder_id, 'viewer')
     book = db.session.get(Folder, folder.book_id)
@@ -850,7 +1087,7 @@ def api_export_folder_docx(folder_id):
                       mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
 
 
-@api_bp.route('/folders/<int:folder_id>/export.rtf')
+@api_bp.route('/folders/<uuid:folder_id>/export.rtf')
 def api_export_folder_rtf(folder_id):
     folder = require_folder_access(folder_id, 'viewer')
     book = db.session.get(Folder, folder.book_id)
@@ -860,7 +1097,7 @@ def api_export_folder_rtf(folder_id):
                       mimetype='application/rtf')
 
 
-@api_bp.route('/folders/<int:folder_id>/export.txt')
+@api_bp.route('/folders/<uuid:folder_id>/export.txt')
 def api_export_folder_txt(folder_id):
     folder = require_folder_access(folder_id, 'viewer')
     book = db.session.get(Folder, folder.book_id)
@@ -870,7 +1107,7 @@ def api_export_folder_txt(folder_id):
                       mimetype='text/plain')
 
 
-@api_bp.route('/folders/<int:folder_id>/export.md')
+@api_bp.route('/folders/<uuid:folder_id>/export.md')
 def api_export_folder_md(folder_id):
     folder = require_folder_access(folder_id, 'viewer')
     book = db.session.get(Folder, folder.book_id)
@@ -880,12 +1117,12 @@ def api_export_folder_md(folder_id):
                       mimetype='text/markdown')
 
 
-@api_bp.route('/folders/<int:folder_id>/reorder', methods=['POST'])
+@api_bp.route('/folders/<uuid:folder_id>/reorder', methods=['POST'])
 def api_reorder_folder(folder_id):
     folder = require_folder_access(folder_id, 'editor')
     data = request.get_json(silent=True) or {}
     typ = data.get('type')
-    ids_order = data.get('order', [])
+    ids_order = [i for i in (parse_uuid(raw) for raw in data.get('order', [])) if i is not None]
     if typ == 'folder':
         children = Folder.query.filter_by(parent_id=folder.id).all()
     elif typ == 'chapter':
@@ -909,8 +1146,8 @@ def api_reorder_folder(folder_id):
 @api_bp.route('/chapters', methods=['POST'])
 def api_create_chapter():
     data = request.get_json(silent=True) or {}
-    folder_id = data.get('folderId')
     name = clean_name(data.get('name', ''))
+    folder_id = parse_uuid(data.get('folderId'))
     if not folder_id or not name:
         return error('folderId and name are required')
     folder = require_folder_access(folder_id, 'editor')
@@ -928,13 +1165,13 @@ def api_create_chapter():
     return jsonify(chapter_detail_dict(chapter)), 201
 
 
-@api_bp.route('/chapters/<int:chapter_id>')
+@api_bp.route('/chapters/<uuid:chapter_id>')
 def api_get_chapter(chapter_id):
     chapter = require_chapter_access(chapter_id, 'viewer')
     return jsonify(chapter_detail_dict(chapter))
 
 
-@api_bp.route('/chapters/<int:chapter_id>', methods=['PATCH'])
+@api_bp.route('/chapters/<uuid:chapter_id>', methods=['PATCH'])
 def api_update_chapter(chapter_id):
     chapter = require_chapter_access(chapter_id, 'editor')
     data = request.get_json(silent=True) or {}
@@ -950,7 +1187,10 @@ def api_update_chapter(chapter_id):
     if 'description' in data:
         chapter.description = data['description']
     if 'folderId' in data:
-        new_folder = require_folder_access(data['folderId'], 'editor')
+        new_folder_id = parse_uuid(data['folderId'])
+        if new_folder_id is None:
+            return error('folderId must be a valid id')
+        new_folder = require_folder_access(new_folder_id, 'editor')
         if new_folder.id != chapter.folder_id:
             if Chapter.query.filter_by(folder_id=new_folder.id, name=chapter.name).first():
                 return error('Name already exists in destination folder', 409)
@@ -964,6 +1204,8 @@ def api_update_chapter(chapter_id):
             chapter.content_html = new_content
     if 'notesText' in data:
         chapter.notes_text = data['notesText']
+    if 'showBookColor' in data:
+        chapter.show_book_color = bool(data['showBookColor'])
     if 'completed' in data:
         if data['completed']:
             if chapter.completed_at is None:
@@ -974,7 +1216,7 @@ def api_update_chapter(chapter_id):
     return jsonify(chapter_detail_dict(chapter))
 
 
-@api_bp.route('/chapters/<int:chapter_id>', methods=['DELETE'])
+@api_bp.route('/chapters/<uuid:chapter_id>', methods=['DELETE'])
 def api_delete_chapter(chapter_id):
     chapter = require_chapter_access(chapter_id, 'editor')
     db.session.delete(chapter)
@@ -982,7 +1224,7 @@ def api_delete_chapter(chapter_id):
     return ('', 204)
 
 
-@api_bp.route('/chapters/<int:chapter_id>/export.docx')
+@api_bp.route('/chapters/<uuid:chapter_id>/export.docx')
 def api_export_chapter_docx(chapter_id):
     chapter = require_chapter_access(chapter_id, 'viewer')
     doc = render_chapter_docx(chapter.content_html)
@@ -995,7 +1237,7 @@ def api_export_chapter_docx(chapter_id):
                       mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
 
 
-@api_bp.route('/chapters/<int:chapter_id>/export.rtf')
+@api_bp.route('/chapters/<uuid:chapter_id>/export.rtf')
 def api_export_chapter_rtf(chapter_id):
     chapter = require_chapter_access(chapter_id, 'viewer')
     book = db.session.get(Folder, chapter.book_id)
@@ -1004,7 +1246,7 @@ def api_export_chapter_rtf(chapter_id):
                       mimetype='application/rtf')
 
 
-@api_bp.route('/chapters/<int:chapter_id>/export.txt')
+@api_bp.route('/chapters/<uuid:chapter_id>/export.txt')
 def api_export_chapter_txt(chapter_id):
     chapter = require_chapter_access(chapter_id, 'viewer')
     book = db.session.get(Folder, chapter.book_id)
@@ -1013,7 +1255,7 @@ def api_export_chapter_txt(chapter_id):
                       mimetype='text/plain')
 
 
-@api_bp.route('/chapters/<int:chapter_id>/export.md')
+@api_bp.route('/chapters/<uuid:chapter_id>/export.md')
 def api_export_chapter_md(chapter_id):
     chapter = require_chapter_access(chapter_id, 'viewer')
     book = db.session.get(Folder, chapter.book_id)
@@ -1022,7 +1264,7 @@ def api_export_chapter_md(chapter_id):
                       mimetype='text/markdown')
 
 
-@api_bp.route('/chapters/<int:chapter_id>/versions')
+@api_bp.route('/chapters/<uuid:chapter_id>/versions')
 def api_list_chapter_versions(chapter_id):
     require_chapter_access(chapter_id, 'viewer')
     versions = (
@@ -1033,7 +1275,7 @@ def api_list_chapter_versions(chapter_id):
     return jsonify([chapter_version_summary_dict(v) for v in versions])
 
 
-@api_bp.route('/chapters/<int:chapter_id>/versions/<int:version_id>')
+@api_bp.route('/chapters/<uuid:chapter_id>/versions/<uuid:version_id>')
 def api_get_chapter_version(chapter_id, version_id):
     require_chapter_access(chapter_id, 'viewer')
     version = ChapterVersion.query.filter_by(id=version_id, chapter_id=chapter_id).first_or_404()
@@ -1042,7 +1284,7 @@ def api_get_chapter_version(chapter_id, version_id):
     return jsonify(d)
 
 
-@api_bp.route('/chapters/<int:chapter_id>/versions/<int:version_id>/restore', methods=['POST'])
+@api_bp.route('/chapters/<uuid:chapter_id>/versions/<uuid:version_id>/restore', methods=['POST'])
 def api_restore_chapter_version(chapter_id, version_id):
     chapter = require_chapter_access(chapter_id, 'editor')
     version = ChapterVersion.query.filter_by(id=version_id, chapter_id=chapter_id).first_or_404()
@@ -1055,7 +1297,7 @@ def api_restore_chapter_version(chapter_id, version_id):
     return jsonify(chapter_detail_dict(chapter))
 
 
-@api_bp.route('/chapters/<int:chapter_id>/stats')
+@api_bp.route('/chapters/<uuid:chapter_id>/stats')
 def api_chapter_stats(chapter_id):
     """Word count over time for a single chapter, from its version
     checkpoints (unlike folder/book stats, which bucket by each chapter's
@@ -1073,26 +1315,53 @@ def api_chapter_stats(chapter_id):
     if days > 0:
         cutoff = (datetime.date.today() - datetime.timedelta(days=days - 1)).isoformat()
         words_per_day = {d: c for d, c in words_per_day.items() if d >= cutoff}
-    return jsonify({'totalWords': total_words, 'wordsPerDay': prune_words_per_day(words_per_day)})
+    return jsonify({
+        'totalWords': total_words,
+        'wordsPerDay': prune_words_per_day(words_per_day),
+        'wpm': writing_wpm([chapter.id]),
+    })
 
 
 PRESENCE_RECENT_WINDOW = datetime.timedelta(seconds=30)
 
 
-@api_bp.route('/chapters/<int:chapter_id>/presence', methods=['POST'])
+@api_bp.route('/chapters/<uuid:chapter_id>/presence', methods=['POST'])
 def api_heartbeat_chapter_presence(chapter_id):
-    require_chapter_access(chapter_id, 'viewer')
+    """Also the carrier for active-writing-time tracking: the client reports
+    its live word count and whether any edit happened since the last
+    heartbeat. An interval only accumulates into ChapterWritingActivity when
+    `typed` is true -- open-but-idle/reading time is never counted, which is
+    what makes WPM/active-time stats exclude downtime."""
+    chapter = require_chapter_access(chapter_id, 'viewer')
+    data = request.get_json(silent=True) or {}
+    raw_word_count = data.get('wordCount')
+    word_count = (
+        int(raw_word_count) if isinstance(raw_word_count, (int, float)) and not isinstance(raw_word_count, bool) else None
+    )
+    typed = bool(data.get('typed'))
+
+    now = datetime.datetime.now(datetime.timezone.utc)
     row = ChapterPresence.query.filter_by(chapter_id=chapter_id, user_id=current_user.id).first()
     if row is None:
-        row = ChapterPresence(chapter_id=chapter_id, user_id=current_user.id)
+        row = ChapterPresence(chapter_id=chapter_id, user_id=current_user.id, last_word_count=word_count)
         db.session.add(row)
     else:
-        row.last_seen = datetime.datetime.now(datetime.timezone.utc)
+        if typed and word_count is not None:
+            last_seen = row.last_seen
+            if last_seen.tzinfo is None:
+                last_seen = last_seen.replace(tzinfo=datetime.timezone.utc)
+            elapsed = min((now - last_seen).total_seconds(), MAX_HEARTBEAT_ELAPSED.total_seconds())
+            baseline = row.last_word_count if row.last_word_count is not None else word_count
+            words_delta = max(0, word_count - baseline)
+            record_writing_activity(chapter, current_user.id, elapsed, words_delta)
+        row.last_seen = now
+        if word_count is not None:
+            row.last_word_count = word_count
     db.session.commit()
     return ('', 204)
 
 
-@api_bp.route('/chapters/<int:chapter_id>/presence')
+@api_bp.route('/chapters/<uuid:chapter_id>/presence')
 def api_list_chapter_presence(chapter_id):
     require_chapter_access(chapter_id, 'viewer')
     cutoff = datetime.datetime.now(datetime.timezone.utc) - PRESENCE_RECENT_WINDOW
@@ -1121,7 +1390,7 @@ def api_list_goals():
 def api_create_goal():
     data = request.get_json(silent=True) or {}
     resource_type = data.get('resourceType')
-    resource_id = data.get('resourceId')
+    resource_id = parse_uuid(data.get('resourceId'))
     goal_type = data.get('goalType')
     target = data.get('target')
     cadence = data.get('cadence')
@@ -1131,6 +1400,8 @@ def api_create_goal():
 
     if resource_type not in ('folder', 'chapter'):
         return error('resourceType must be "folder" or "chapter"')
+    if resource_id is None:
+        return error('resourceId must be a valid id')
     if goal_type not in ('words', 'chapters'):
         return error('goalType must be "words" or "chapters"')
     if goal_type == 'chapters' and resource_type != 'folder':
@@ -1193,7 +1464,7 @@ def api_create_goal():
     return jsonify(goal_dict(goal)), 201
 
 
-@api_bp.route('/goals/<int:goal_id>', methods=['PATCH'])
+@api_bp.route('/goals/<uuid:goal_id>', methods=['PATCH'])
 def api_update_goal(goal_id):
     goal = Goal.query.filter_by(id=goal_id, user_id=current_user.id).first_or_404()
     data = request.get_json(silent=True) or {}
@@ -1246,7 +1517,7 @@ def api_update_goal(goal_id):
     return jsonify(goal_dict(goal))
 
 
-@api_bp.route('/goals/<int:goal_id>', methods=['DELETE'])
+@api_bp.route('/goals/<uuid:goal_id>', methods=['DELETE'])
 def api_delete_goal(goal_id):
     goal = Goal.query.filter_by(id=goal_id, user_id=current_user.id).first_or_404()
     db.session.delete(goal)
@@ -1266,7 +1537,7 @@ def goal_period_history_dict(entry: GoalPeriodHistory) -> dict:
     }
 
 
-@api_bp.route('/goals/<int:goal_id>/history')
+@api_bp.route('/goals/<uuid:goal_id>/history')
 def api_goal_history(goal_id):
     """Past completed periods of a recurring goal (see GoalPeriodHistory --
     only ever populated going forward from whenever the goal started being
@@ -1313,10 +1584,26 @@ def api_update_settings():
         'bookOrder': 'book_order',
         'hiddenGoalIds': 'hidden_goal_ids',
         'goalOrder': 'goal_order',
+        'primaryGoalId': 'primary_goal_id',
     }
+    id_array_keys = {'openBookIds', 'closedFolderIds', 'closedChapterIds', 'bookOrder', 'hiddenGoalIds', 'goalOrder'}
     for api_key, attr in field_map.items():
-        if api_key in data:
-            setattr(settings, attr, data[api_key])
+        if api_key not in data:
+            continue
+        value = data[api_key]
+        if api_key in id_array_keys:
+            if not isinstance(value, list):
+                return error(f'{api_key} must be a list of ids')
+            parsed = [parse_uuid(raw) for raw in value]
+            if any(p is None for p in parsed):
+                return error(f'{api_key} contains an invalid id')
+            value = parsed
+        elif api_key == 'primaryGoalId' and value is not None:
+            goal_uuid = parse_uuid(value)
+            if goal_uuid is None or not Goal.query.filter_by(id=goal_uuid, user_id=current_user.id).first():
+                return error('No such goal')
+            value = goal_uuid
+        setattr(settings, attr, value)
     db.session.commit()
     return jsonify(settings_to_dict(settings))
 

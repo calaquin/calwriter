@@ -13,7 +13,9 @@ import type {
   Share,
   SharedItem,
   SearchResult,
-  Stats,
+  WorkspaceStats,
+  FolderStats,
+  ChapterStats,
   Invite,
   Goal,
   GoalType,
@@ -30,7 +32,7 @@ export function useBooks() {
   return useQuery({ queryKey: ['books'], queryFn: () => api.get<Book[]>('/books') })
 }
 
-export function useBook(bookId: number | undefined) {
+export function useBook(bookId: string | undefined) {
   return useQuery({
     queryKey: ['book', bookId],
     queryFn: () => api.get<Book>(`/books/${bookId}`),
@@ -38,7 +40,7 @@ export function useBook(bookId: number | undefined) {
   })
 }
 
-export function useFolder(folderId: number | undefined) {
+export function useFolder(folderId: string | undefined) {
   return useQuery({
     queryKey: ['folder', folderId],
     queryFn: () => api.get<FolderDetail>(`/folders/${folderId}`),
@@ -49,7 +51,7 @@ export function useFolder(folderId: number | undefined) {
 /** Every sub-folder and chapter id nested under a folder -- used to decide
  * whether "Open all" has anything to do (see useOpenAll) before the user
  * clicks it, not just to perform the un-hide itself. */
-export function useFolderTreeIds(folderId: number | undefined) {
+export function useFolderTreeIds(folderId: string | undefined) {
   return useQuery({
     queryKey: ['folder-tree-ids', folderId],
     queryFn: () => api.get<FolderTreeIds>(`/folders/${folderId}/tree-ids`),
@@ -59,7 +61,7 @@ export function useFolderTreeIds(folderId: number | undefined) {
 
 /** Every sub-folder and chapter in a book, flattened with depth -- for a
  * picker that needs names, not just ids (see CreateGoalModal). */
-export function useFolderTree(folderId: number | undefined) {
+export function useFolderTree(folderId: string | undefined) {
   return useQuery({
     queryKey: ['folder-tree', folderId],
     queryFn: () => api.get<FolderTreeEntry[]>(`/folders/${folderId}/tree`),
@@ -67,7 +69,7 @@ export function useFolderTree(folderId: number | undefined) {
   })
 }
 
-export function useChapter(chapterId: number | undefined) {
+export function useChapter(chapterId: string | undefined) {
   return useQuery({
     queryKey: ['chapter', chapterId],
     queryFn: () => api.get<ChapterDetail>(`/chapters/${chapterId}`),
@@ -79,7 +81,7 @@ export function useSettings() {
   return useQuery({ queryKey: ['settings'], queryFn: () => api.get<UserSettings>('/me/settings') })
 }
 
-export function useShares(resourceType: ShareResourceType, resourceId: number | undefined) {
+export function useShares(resourceType: ShareResourceType, resourceId: string | undefined) {
   return useQuery({
     queryKey: ['shares', resourceType, resourceId],
     queryFn: () => api.get<Share[]>(`/${resourceType}s/${resourceId}/shares`),
@@ -103,8 +105,8 @@ export function useLeaveShare() {
       userId,
     }: {
       resourceType: ShareResourceType
-      resourceId: number
-      userId: number
+      resourceId: string
+      userId: string
     }) => api.del<void>(`/${resourceType}s/${resourceId}/shares/${userId}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['shared-with-me'] }),
   })
@@ -122,18 +124,18 @@ export function useSearch(query: string) {
   })
 }
 
-export function useFolderStats(folderId: number | undefined, days: number) {
+export function useFolderStats(folderId: string | undefined, days: number) {
   return useQuery({
     queryKey: ['stats', 'folder', folderId, days],
-    queryFn: () => api.get<Stats>(`/folders/${folderId}/stats?days=${days}`),
+    queryFn: () => api.get<FolderStats>(`/folders/${folderId}/stats?days=${days}`),
     enabled: folderId !== undefined,
   })
 }
 
-export function useChapterStats(chapterId: number | undefined, days: number) {
+export function useChapterStats(chapterId: string | undefined, days: number) {
   return useQuery({
     queryKey: ['stats', 'chapter', chapterId, days],
-    queryFn: () => api.get<Stats>(`/chapters/${chapterId}/stats?days=${days}`),
+    queryFn: () => api.get<ChapterStats>(`/chapters/${chapterId}/stats?days=${days}`),
     enabled: chapterId !== undefined,
   })
 }
@@ -141,7 +143,7 @@ export function useChapterStats(chapterId: number | undefined, days: number) {
 export function useWorkspaceStats(days: number, enabled = true) {
   return useQuery({
     queryKey: ['stats', 'workspace', days],
-    queryFn: () => api.get<Stats>(`/stats?days=${days}`),
+    queryFn: () => api.get<WorkspaceStats>(`/stats?days=${days}`),
     enabled,
   })
 }
@@ -150,7 +152,7 @@ export function useGoals() {
   return useQuery({ queryKey: ['goals'], queryFn: () => api.get<Goal[]>('/goals') })
 }
 
-export function useGoalHistory(goalId: number | undefined) {
+export function useGoalHistory(goalId: string | undefined) {
   return useQuery({
     queryKey: ['goal-history', goalId],
     queryFn: () => api.get<GoalHistory>(`/goals/${goalId}/history`),
@@ -200,11 +202,12 @@ export function useImportDatabase() {
   })
 }
 
-export function useUpdateBook(bookId: number) {
+export function useUpdateBook(bookId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: Partial<{ name: string; description: string; author: string; color: string }>) =>
-      api.patch<Book>(`/books/${bookId}`, data),
+    mutationFn: (
+      data: Partial<{ name: string; description: string; author: string; color: string; showBookColor: boolean }>,
+    ) => api.patch<Book>(`/books/${bookId}`, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['books'] })
       qc.invalidateQueries({ queryKey: ['book', bookId] })
@@ -216,12 +219,12 @@ export function useUpdateBook(bookId: number) {
 export function useDeleteBook() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (bookId: number) => api.del<void>(`/books/${bookId}`),
+    mutationFn: (bookId: string) => api.del<void>(`/books/${bookId}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['books'] }),
   })
 }
 
-export function useCreateFolder(parentId: number) {
+export function useCreateFolder(parentId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (data: { name: string; description?: string }) =>
@@ -230,10 +233,10 @@ export function useCreateFolder(parentId: number) {
   })
 }
 
-export function useUpdateFolder(folderId: number, parentId: number | null) {
+export function useUpdateFolder(folderId: string, parentId: string | null) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: Partial<{ name: string; description: string; author: string }>) =>
+    mutationFn: (data: Partial<{ name: string; description: string; author: string; showBookColor: boolean }>) =>
       api.patch<FolderSummary>(`/folders/${folderId}`, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['folder', folderId] })
@@ -242,10 +245,10 @@ export function useUpdateFolder(folderId: number, parentId: number | null) {
   })
 }
 
-export function useDeleteFolder(parentId: number | null) {
+export function useDeleteFolder(parentId: string | null) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (folderId: number) => api.del<void>(`/folders/${folderId}`),
+    mutationFn: (folderId: string) => api.del<void>(`/folders/${folderId}`),
     onSuccess: () => {
       if (parentId !== null) qc.invalidateQueries({ queryKey: ['folder', parentId] })
       qc.invalidateQueries({ queryKey: ['books'] })
@@ -253,7 +256,7 @@ export function useDeleteFolder(parentId: number | null) {
   })
 }
 
-export function useCreateChapter(folderId: number) {
+export function useCreateChapter(folderId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (data: { name: string; description?: string }) =>
@@ -262,7 +265,7 @@ export function useCreateChapter(folderId: number) {
   })
 }
 
-export function useUpdateChapter(chapterId: number, folderId: number) {
+export function useUpdateChapter(chapterId: string, folderId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (
@@ -273,11 +276,17 @@ export function useUpdateChapter(chapterId: number, folderId: number) {
         notesText: string
         expectedUpdatedAt: string
         completed: boolean
+        showBookColor: boolean
       }>,
     ) => api.patch<ChapterDetail>(`/chapters/${chapterId}`, data),
     onSuccess: (updated) => {
       qc.setQueryData(['chapter', chapterId], updated)
       qc.invalidateQueries({ queryKey: ['folder', folderId] })
+      // Word count / completion state may have just changed, which any
+      // words-or-chapters goal targeting this chapter (or an ancestor
+      // folder) tracks live -- without this, the sidebar's primary-goal
+      // progress bar and the Goals page only caught up on a full reload.
+      qc.invalidateQueries({ queryKey: ['goals'] })
     },
   })
 }
@@ -285,7 +294,7 @@ export function useUpdateChapter(chapterId: number, folderId: number) {
 export function useMoveChapter() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (vars: { chapterId: number; sourceFolderId: number; folderId: number }) =>
+    mutationFn: (vars: { chapterId: string; sourceFolderId: string; folderId: string }) =>
       api.patch<ChapterDetail>(`/chapters/${vars.chapterId}`, { folderId: vars.folderId }),
     onSuccess: (updated, vars) => {
       qc.setQueryData(['chapter', updated.id], updated)
@@ -295,10 +304,10 @@ export function useMoveChapter() {
   })
 }
 
-export function useRenameChapter(folderId: number) {
+export function useRenameChapter(folderId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (vars: { chapterId: number; name: string }) =>
+    mutationFn: (vars: { chapterId: string; name: string }) =>
       api.patch<ChapterDetail>(`/chapters/${vars.chapterId}`, { name: vars.name }),
     onSuccess: (updated) => {
       qc.setQueryData(['chapter', updated.id], updated)
@@ -307,15 +316,20 @@ export function useRenameChapter(folderId: number) {
   })
 }
 
-export function useDeleteChapter(folderId: number) {
+export function useDeleteChapter(folderId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (chapterId: number) => api.del<void>(`/chapters/${chapterId}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['folder', folderId] }),
+    mutationFn: (chapterId: string) => api.del<void>(`/chapters/${chapterId}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['folder', folderId] })
+      // Removes the chapter's words/completion from any covering folder
+      // goal, and cascade-deletes a goal targeting the chapter directly.
+      qc.invalidateQueries({ queryKey: ['goals'] })
+    },
   })
 }
 
-export function useChapterVersions(chapterId: number | undefined, enabled: boolean) {
+export function useChapterVersions(chapterId: string | undefined, enabled: boolean) {
   return useQuery({
     queryKey: ['chapterVersions', chapterId],
     queryFn: () => api.get<ChapterVersionSummary[]>(`/chapters/${chapterId}/versions`),
@@ -323,7 +337,7 @@ export function useChapterVersions(chapterId: number | undefined, enabled: boole
   })
 }
 
-export function useChapterVersion(chapterId: number | undefined, versionId: number | undefined) {
+export function useChapterVersion(chapterId: string | undefined, versionId: string | undefined) {
   return useQuery({
     queryKey: ['chapterVersion', chapterId, versionId],
     queryFn: () => api.get<ChapterVersionDetail>(`/chapters/${chapterId}/versions/${versionId}`),
@@ -331,18 +345,20 @@ export function useChapterVersion(chapterId: number | undefined, versionId: numb
   })
 }
 
-export function useRestoreChapterVersion(chapterId: number) {
+export function useRestoreChapterVersion(chapterId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (versionId: number) => api.post<ChapterDetail>(`/chapters/${chapterId}/versions/${versionId}/restore`),
+    mutationFn: (versionId: string) => api.post<ChapterDetail>(`/chapters/${chapterId}/versions/${versionId}/restore`),
     onSuccess: (updated) => {
       qc.setQueryData(['chapter', chapterId], updated)
       qc.invalidateQueries({ queryKey: ['chapterVersions', chapterId] })
+      // Restoring can move the word count up or down, same as a normal edit.
+      qc.invalidateQueries({ queryKey: ['goals'] })
     },
   })
 }
 
-export function useChapterPresence(chapterId: number | undefined) {
+export function useChapterPresence(chapterId: string | undefined) {
   return useQuery({
     queryKey: ['chapterPresence', chapterId],
     queryFn: () => api.get<PresenceUser[]>(`/chapters/${chapterId}/presence`),
@@ -351,9 +367,32 @@ export function useChapterPresence(chapterId: number | undefined) {
   })
 }
 
-export function useChapterPresenceHeartbeat(chapterId: number | undefined) {
+export function useChapterPresenceHeartbeat(chapterId: string | undefined) {
   return useMutation({
-    mutationFn: () => api.post<void>(`/chapters/${chapterId}/presence`),
+    mutationFn: (vars: { wordCount: number; typed: boolean }) =>
+      api.post<void>(`/chapters/${chapterId}/presence`, vars),
+  })
+}
+
+/** Quick "Complete" toggle usable from a chapter-list row (FolderPage,
+ * FolderTreeNode, the stale-chapters stats list) without opening Chapter
+ * Settings -- same PATCH the settings modal's checkbox already uses. Not
+ * bound to one folderId up front (unlike useUpdateChapter) since a single
+ * call site here may toggle chapters from several different folders (e.g.
+ * a folder's stale-chapters list only ever lists chapters within itself, so
+ * this is mostly one-folder-at-a-time in practice, but genuinely needed for
+ * the sidebar tree, which renders one FolderTreeNode per folder). */
+export function useToggleChapterComplete() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: { chapterId: string; folderId: string; completed: boolean }) =>
+      api.patch<ChapterDetail>(`/chapters/${vars.chapterId}`, { completed: vars.completed }),
+    onSuccess: (updated, vars) => {
+      qc.setQueryData(['chapter', updated.id], updated)
+      qc.invalidateQueries({ queryKey: ['folder', vars.folderId] })
+      qc.invalidateQueries({ queryKey: ['stats'] })
+      qc.invalidateQueries({ queryKey: ['goals'] })
+    },
   })
 }
 
@@ -371,7 +410,7 @@ export function useUpdateSettings() {
 export function useOpenAll() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (folderId: number) => {
+    mutationFn: async (folderId: string) => {
       const { folderIds, chapterIds } = await api.get<FolderTreeIds>(`/folders/${folderId}/tree-ids`)
       const settings = qc.getQueryData<UserSettings>(['settings'])
       const closedFolderIds = (settings?.closedFolderIds ?? []).filter((id) => !folderIds.includes(id))
@@ -394,10 +433,10 @@ export function useCreateInvite() {
   })
 }
 
-export function useReorderFolderChildren(folderId: number) {
+export function useReorderFolderChildren(folderId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { type: 'folder' | 'chapter'; order: number[] }) =>
+    mutationFn: (data: { type: 'folder' | 'chapter'; order: string[] }) =>
       api.post<void>(`/folders/${folderId}/reorder`, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['folder', folderId] }),
   })
@@ -406,7 +445,7 @@ export function useReorderFolderChildren(folderId: number) {
 export function useReorderBooks() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (order: number[]) => api.patch<UserSettings>('/me/settings', { bookOrder: order }),
+    mutationFn: (order: string[]) => api.patch<UserSettings>('/me/settings', { bookOrder: order }),
     onSuccess: (updated) => {
       qc.setQueryData(['settings'], updated)
       qc.invalidateQueries({ queryKey: ['books'] })
@@ -414,7 +453,7 @@ export function useReorderBooks() {
   })
 }
 
-export function useAddShare(resourceType: ShareResourceType, resourceId: number) {
+export function useAddShare(resourceType: ShareResourceType, resourceId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (data: { username: string; role: 'editor' | 'viewer' }) =>
@@ -423,19 +462,19 @@ export function useAddShare(resourceType: ShareResourceType, resourceId: number)
   })
 }
 
-export function useUpdateShare(resourceType: ShareResourceType, resourceId: number) {
+export function useUpdateShare(resourceType: ShareResourceType, resourceId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { userId: number; role: 'editor' | 'viewer' }) =>
+    mutationFn: (data: { userId: string; role: 'editor' | 'viewer' }) =>
       api.patch<Share>(`/${resourceType}s/${resourceId}/shares/${data.userId}`, { role: data.role }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['shares', resourceType, resourceId] }),
   })
 }
 
-export function useRemoveShare(resourceType: ShareResourceType, resourceId: number) {
+export function useRemoveShare(resourceType: ShareResourceType, resourceId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (userId: number) => api.del<void>(`/${resourceType}s/${resourceId}/shares/${userId}`),
+    mutationFn: (userId: string) => api.del<void>(`/${resourceType}s/${resourceId}/shares/${userId}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['shares', resourceType, resourceId] })
       // Covers self-revoke (leaving a share): the item this was scoped to
@@ -450,7 +489,7 @@ export function useCreateGoal() {
   return useMutation({
     mutationFn: (data: {
       resourceType: GoalResourceType
-      resourceId: number
+      resourceId: string
       goalType: GoalType
       target: number
       cadence?: GoalCadence
@@ -465,7 +504,7 @@ export function useCreateGoal() {
 export function useUpdateGoal() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (vars: { goalId: number; target?: number; startDate?: string; endDate?: string; name?: string }) =>
+    mutationFn: (vars: { goalId: string; target?: number; startDate?: string; endDate?: string; name?: string }) =>
       api.patch<Goal>(`/goals/${vars.goalId}`, {
         target: vars.target,
         startDate: vars.startDate,
@@ -479,7 +518,7 @@ export function useUpdateGoal() {
 export function useDeleteGoal() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (goalId: number) => api.del<void>(`/goals/${goalId}`),
+    mutationFn: (goalId: string) => api.del<void>(`/goals/${goalId}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['goals'] }),
   })
 }

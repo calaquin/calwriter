@@ -19,7 +19,7 @@ const CADENCE_OPTIONS: { value: GoalCadence; label: string }[] = [
 ]
 
 /** depth-indented "folder:123" / "chapter:456" key, or '' for the book itself. */
-function targetKeyOf(type: GoalResourceType, id: number): string {
+function targetKeyOf(type: GoalResourceType, id: string): string {
   return `${type}:${id}`
 }
 
@@ -32,12 +32,12 @@ export default function CreateGoalModal({
   /** Fixed target resource, e.g. arriving from a sidebar "⋯ > Goals" link.
    * When omitted, the modal lets the user pick a book, then optionally
    * narrow to any sub-folder or chapter within it. */
-  resource?: { type: GoalResourceType; id: number }
+  resource?: { type: GoalResourceType; id: string }
   saving: boolean
   onClose: () => void
   onCreate: (data: {
     resourceType: GoalResourceType
-    resourceId: number
+    resourceId: string
     goalType: GoalType
     target: number
     cadence?: GoalCadence
@@ -49,7 +49,7 @@ export default function CreateGoalModal({
   const { data: books } = useBooks()
   const { data: folder } = useFolder(resource?.type === 'folder' ? resource.id : undefined)
   const { data: chapter } = useChapter(resource?.type === 'chapter' ? resource.id : undefined)
-  const [selectedBookId, setSelectedBookId] = useState<number | null>(null)
+  const [selectedBookId, setSelectedBookId] = useState<string | null>(null)
   const { data: treeEntries } = useFolderTree(!resource ? (selectedBookId ?? undefined) : undefined)
   const [targetKey, setTargetKey] = useState('') // '' = whole book
   const [name, setName] = useState('')
@@ -111,9 +111,10 @@ export default function CreateGoalModal({
     resourceId !== null &&
     Number.isInteger(targetNumber) &&
     targetNumber > 0 &&
+    startDate &&
     (timeframe === 'recurring'
-      ? !recurringEndDate || recurringEndDate >= todayIso()
-      : startDate && endDate && endDate >= startDate)
+      ? !recurringEndDate || recurringEndDate >= startDate
+      : endDate && endDate >= startDate)
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -124,7 +125,7 @@ export default function CreateGoalModal({
       goalType,
       target: targetNumber,
       cadence: timeframe === 'recurring' ? cadence : undefined,
-      startDate: timeframe === 'recurring' ? todayIso() : startDate,
+      startDate,
       endDate: timeframe === 'fixed' ? endDate : recurringEndDate || undefined,
       name: name.trim() || undefined,
     })
@@ -156,7 +157,7 @@ export default function CreateGoalModal({
             <>
               <label>
                 <span>Book</span>
-                <select value={selectedBookId ?? ''} onChange={(e) => setSelectedBookId(Number(e.target.value))}>
+                <select value={selectedBookId ?? ''} onChange={(e) => setSelectedBookId(e.target.value)}>
                   {(books ?? []).map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name}
@@ -261,15 +262,21 @@ export default function CreateGoalModal({
                   ))}
                 </select>
               </label>
-              <label>
-                <span>Ends (optional)</span>
-                <input
-                  type="date"
-                  value={recurringEndDate}
-                  onChange={(e) => setRecurringEndDate(e.target.value)}
-                  min={todayIso()}
-                />
-              </label>
+              <div className="goal-modal-date-row">
+                <label>
+                  <span>Starts</span>
+                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                </label>
+                <label>
+                  <span>Ends (optional)</span>
+                  <input
+                    type="date"
+                    value={recurringEndDate}
+                    onChange={(e) => setRecurringEndDate(e.target.value)}
+                    min={startDate}
+                  />
+                </label>
+              </div>
             </>
           ) : (
             <div className="goal-modal-date-row">

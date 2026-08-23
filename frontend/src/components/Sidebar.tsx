@@ -1,17 +1,21 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { useBooks, useSettings, useSharedWithMe, useLeaveShare } from '../api/hooks'
+import { useBooks, useGoals, useSettings, useSharedWithMe, useLeaveShare } from '../api/hooks'
 import { useAuth } from '../context/AuthContext'
 import { useSidebarVisibility } from '../context/SidebarVisibilityContext'
+import { useTabs } from '../context/TabsContext'
 import FolderTreeNode from './FolderTreeNode'
 import TreeItemMenu from './TreeItemMenu'
 import ConfirmModal from './ConfirmModal'
+import { goalDescription } from './GoalCard'
 import type { SharedItem } from '../api/types'
 
 export default function Sidebar() {
   const { data: books } = useBooks()
   const { data: settings } = useSettings()
+  const { data: goals } = useGoals()
   const { data: sharedItems } = useSharedWithMe()
+  const { lastVisited } = useTabs()
   const leaveShare = useLeaveShare()
   const { user, logout } = useAuth()
   const { sidebarHidden, toggleSidebar } = useSidebarVisibility()
@@ -40,6 +44,7 @@ export default function Sidebar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname])
 
+  const primaryGoal = goals?.find((g) => g.id === settings?.primaryGoalId)
   const openBookIds = new Set(settings?.openBookIds ?? [])
   const closedFolderIds = new Set(settings?.closedFolderIds ?? [])
   const closedChapterIds = new Set(settings?.closedChapterIds ?? [])
@@ -92,6 +97,48 @@ export default function Sidebar() {
           </button>
         </div>
       </div>
+      {primaryGoal && (
+        <Link
+          to="/goals"
+          className="sidebar-primary-goal"
+          title={`${primaryGoal.name || primaryGoal.resourceName || 'Goal'} -- ${goalDescription(primaryGoal)}`}
+        >
+          <div className="sidebar-primary-goal-header">
+            <span className="sidebar-primary-goal-star" aria-hidden="true">★</span>
+            <span className="sidebar-primary-goal-name">
+              {primaryGoal.name || primaryGoal.resourceName || 'Goal'}
+            </span>
+          </div>
+          {primaryGoal.started ? (
+            <>
+              <div className="goal-progress-track">
+                <div
+                  className={`goal-progress-fill${primaryGoal.achieved ? ' achieved' : ''}`}
+                  style={{ width: `${Math.max(2, primaryGoal.percent)}%` }}
+                />
+              </div>
+              <span className="goal-progress-label">
+                {primaryGoal.current.toLocaleString()} / {primaryGoal.target.toLocaleString()} ({primaryGoal.percent}%)
+                {primaryGoal.achieved && ' ✓'}
+              </span>
+            </>
+          ) : (
+            <span className="goal-progress-label">Starts soon</span>
+          )}
+        </Link>
+      )}
+      {lastVisited && location.pathname !== `/chapters/${lastVisited.chapterId}` && (
+        <Link
+          to={`/chapters/${lastVisited.chapterId}`}
+          className="sidebar-resume-link"
+          title={`Continue writing: ${lastVisited.name}`}
+        >
+          <span className="sidebar-resume-icon" aria-hidden="true">
+            ✎
+          </span>
+          <span className="sidebar-resume-text">Continue: {lastVisited.name}</span>
+        </Link>
+      )}
       <form id="search_form" onSubmit={handleSearch}>
         <input type="text" placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} />
       </form>

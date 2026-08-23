@@ -6,14 +6,15 @@ import SharingSection from '../components/SharingSection'
 
 export default function BookSettingsPage() {
   const { folderId } = useParams()
-  const bookId = folderId ? Number(folderId) : undefined
+  const bookId = folderId
   const { data: book, isLoading } = useBook(bookId)
-  const update = useUpdateBook(bookId ?? 0)
+  const update = useUpdateBook(bookId ?? '')
 
   const [name, setName] = useState('')
   const [author, setAuthor] = useState('')
   const [description, setDescription] = useState('')
   const [color, setColor] = useState('#dddddd')
+  const [showBookColor, setShowBookColor] = useState(true)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => {
@@ -22,6 +23,7 @@ export default function BookSettingsPage() {
       setAuthor(book.author)
       setDescription(book.description)
       setColor(book.color || '#dddddd')
+      setShowBookColor(book.showBookColor)
     }
   }, [book])
 
@@ -38,7 +40,7 @@ export default function BookSettingsPage() {
       return
     }
     try {
-      await update.mutateAsync({ name: trimmedName, author, description, color })
+      await update.mutateAsync({ name: trimmedName, author, description, color, showBookColor })
       setMessage({ type: 'success', text: 'Settings saved.' })
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof ApiError ? err.message : 'Failed to save settings' })
@@ -91,6 +93,15 @@ export default function BookSettingsPage() {
               <input type="color" value={color} onChange={(e) => setColor(e.target.value)} aria-label="Book color" />
               <code>{color.toUpperCase()}</code>
             </span>
+          </label>
+
+          <label className="chapter-complete-toggle">
+            <input
+              type="checkbox"
+              checked={showBookColor}
+              onChange={(e) => setShowBookColor(e.target.checked)}
+            />
+            Use book color as a subtle editor background
           </label>
 
           {message && (

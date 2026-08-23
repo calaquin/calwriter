@@ -1,4 +1,5 @@
 import os
+import uuid
 import click
 from flask import Flask, request, jsonify, send_from_directory
 from werkzeug.security import generate_password_hash
@@ -26,7 +27,10 @@ login_manager = LoginManager(app)
 
 @login_manager.user_loader
 def load_user(user_id):
-    return db.session.get(User, int(user_id))
+    try:
+        return db.session.get(User, uuid.UUID(user_id))
+    except (ValueError, AttributeError, TypeError):
+        return None
 
 
 @app.cli.command('create-user')
@@ -85,7 +89,7 @@ def list_books_cli():
 
 
 @app.cli.command('share-book')
-@click.argument('book_id', type=int)
+@click.argument('book_id')
 @click.argument('username')
 @click.argument('role', type=click.Choice(['editor', 'viewer']))
 def share_book_cli(book_id, username, role):
@@ -111,7 +115,7 @@ def share_book_cli(book_id, username, role):
 
 
 @app.cli.command('unshare-book')
-@click.argument('book_id', type=int)
+@click.argument('book_id')
 @click.argument('username')
 def unshare_book_cli(book_id, username):
     """Revoke a user's access to a book."""
