@@ -7,7 +7,7 @@ import { useTabs } from '../context/TabsContext'
 import FolderTreeNode from './FolderTreeNode'
 import TreeItemMenu from './TreeItemMenu'
 import ConfirmModal from './ConfirmModal'
-import { goalDescription } from './GoalCard'
+import { goalDescription, goalProgressUnit } from './GoalCard'
 import type { SharedItem } from '../api/types'
 
 export default function Sidebar() {
@@ -118,7 +118,8 @@ export default function Sidebar() {
                 />
               </div>
               <span className="goal-progress-label">
-                {primaryGoal.current.toLocaleString()} / {primaryGoal.target.toLocaleString()} ({primaryGoal.percent}%)
+                {primaryGoal.current.toLocaleString()} / {primaryGoal.target.toLocaleString()}{' '}
+                {goalProgressUnit(primaryGoal)} ({primaryGoal.percent}%)
                 {primaryGoal.achieved && ' ✓'}
               </span>
             </>
@@ -193,7 +194,7 @@ export default function Sidebar() {
       )}
       {leaveTarget && (
         <ConfirmModal
-          title={`Leave ${leaveTarget.type === 'folder' ? 'sub-folder' : 'chapter'}`}
+          title={`Leave ${leaveTarget.type === 'folder' ? 'folder' : 'chapter'}`}
           message={`Remove "${leaveTarget.name}" from your sidebar? You can be re-shared with it later.`}
           confirmLabel="Leave"
           pending={leaveShare.isPending}

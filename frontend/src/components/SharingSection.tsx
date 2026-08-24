@@ -11,7 +11,7 @@ export default function SharingSection({
 }: {
   resourceType: 'folder' | 'chapter'
   resourceId: string
-  /** What to call this in the UI, e.g. "book", "sub-folder", "chapter". */
+  /** What to call this in the UI, e.g. "book", "folder", "chapter". */
   resourceNoun: string
   /** Set false when an enclosing section already has its own "Sharing" heading. */
   showHeading?: boolean

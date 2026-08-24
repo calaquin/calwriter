@@ -8,7 +8,7 @@ import {
   useWorkspaceStats,
   useToggleChapterComplete,
 } from '../api/hooks'
-import type { HeatmapBucket } from '../api/types'
+import type { HeatmapBucket, ResourceActivityStats } from '../api/types'
 
 const DAY_OPTIONS = [
   { value: 7, label: 'Last 7 days' },
@@ -36,6 +36,10 @@ function formatPercent(value: number | null): string {
 function formatSignedPercent(value: number | null): string {
   if (value === null) return '—'
   return `${value > 0 ? '+' : ''}${value}%`
+}
+
+function formatWpm(value: number | null): string {
+  return value === null ? '—' : value.toFixed(1)
 }
 
 /** Day-of-week x hour-of-day activity grid. A single-hue (the app's own ink
@@ -88,6 +92,47 @@ function WritingHeatmap({ buckets }: { buckets: HeatmapBucket[] }) {
   )
 }
 
+function ContributionStats({ activity }: { activity: ResourceActivityStats }) {
+  return (
+    <section className="folder-section">
+      <div className="folder-section-header">
+        <div>
+          <h2>Contributors</h2>
+          <p>Each writer’s historical activity in this resource. Average WPM is always calculated per writer.</p>
+        </div>
+      </div>
+      {activity.contributors.length === 0 ? (
+        <p className="folder-empty-state">No writing activity yet.</p>
+      ) : (
+        <div className="stats-table-wrap">
+          <table className="stats-table">
+            <thead>
+              <tr>
+                <th>Contributor</th>
+                <th>Words written</th>
+                <th>Words pasted</th>
+                <th>Active writing time</th>
+                <th>Average WPM</th>
+              </tr>
+            </thead>
+            <tbody>
+              {activity.contributors.map((contributor) => (
+                <tr key={contributor.userId}>
+                  <td>{contributor.username}{contributor.isCurrentUser ? ' (you)' : ''}</td>
+                  <td>{contributor.wordsTyped.toLocaleString()}</td>
+                  <td>{contributor.wordsPasted.toLocaleString()}</td>
+                  <td>{formatDuration(contributor.activeSeconds)}</td>
+                  <td>{formatWpm(contributor.wpm)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  )
+}
+
 export default function StatsPage() {
   const { folderId, chapterId } = useParams()
   const fId = folderId
@@ -105,7 +150,7 @@ export default function StatsPage() {
   const { data: chapter } = useChapter(cId)
   const resourceName = fId !== undefined ? folder?.name : cId !== undefined ? chapter?.name : undefined
   const resourceType =
-    fId !== undefined ? (folder?.parentId === null ? 'Book' : 'Sub-folder') : cId !== undefined ? 'Chapter' : undefined
+    fId !== undefined ? (folder?.parentId === null ? 'Book' : 'Folder') : cId !== undefined ? 'Chapter' : undefined
 
   const toggleComplete = useToggleChapterComplete()
 
@@ -115,6 +160,11 @@ export default function StatsPage() {
   const workspace = isWorkspace ? workspaceStatsQuery.data : undefined
   const folderExtra = fId !== undefined ? folderStatsQuery.data : undefined
   const chapterExtra = cId !== undefined ? chapterStatsQuery.data : undefined
+  const resourceActivity = folderExtra?.activity ?? chapterExtra?.activity
+  const chartTitle = chapterExtra ? 'Document growth' : 'Current word count by last edit'
+  const chartDescription = chapterExtra
+    ? 'Total words present at each saved checkpoint.'
+    : 'Current chapter word counts grouped by each chapter’s most recent edit.'
 
   return (
     <div className="folder-page">
@@ -136,14 +186,68 @@ export default function StatsPage() {
             </span>
             <span className="stats-summary-label">Total words</span>
           </div>
+          {folderExtra && (
+            <>
+              <div className="stats-summary-tile">
+                <span className="stats-summary-value">{folderExtra.chapterCount.toLocaleString()}</span>
+                <span className="stats-summary-label">Chapters (recursive)</span>
+              </div>
+              <div className="stats-summary-tile">
+                <span className="stats-summary-value">{folderExtra.completedChapterCount.toLocaleString()}</span>
+                <span className="stats-summary-label">Completed chapters</span>
+              </div>
+              <div className="stats-summary-tile">
+                <span className="stats-summary-value">{folderExtra.revisionCount.toLocaleString()}</span>
+                <span className="stats-summary-label">Revisions</span>
+              </div>
+              <div className="stats-summary-tile">
+                <span className="stats-summary-value">{formatWpm(folderExtra.activity.mine.wpm)}</span>
+                <span className="stats-summary-label">Your average WPM</span>
+              </div>
+              <div className="stats-summary-tile">
+                <span className="stats-summary-value">{folderExtra.activity.mine.wordsTyped.toLocaleString()}</span>
+                <span className="stats-summary-label">Your words written</span>
+              </div>
+              <div className="stats-summary-tile">
+                <span className="stats-summary-value">{folderExtra.activity.mine.wordsPasted.toLocaleString()}</span>
+                <span className="stats-summary-label">Your words pasted</span>
+              </div>
+              <div className="stats-summary-tile">
+                <span className="stats-summary-value">{formatDuration(folderExtra.activity.mine.activeSeconds)}</span>
+                <span className="stats-summary-label">Your active writing time</span>
+              </div>
+            </>
+          )}
           {chapterExtra && (
-            <div className="stats-summary-tile">
-              <span className="stats-summary-value">{chapterExtra.wpm}</span>
-              <span className="stats-summary-label">Words / minute (active)</span>
-            </div>
+            <>
+              <div className="stats-summary-tile">
+                <span className="stats-summary-value">{formatWpm(chapterExtra.activity.mine.wpm)}</span>
+                <span className="stats-summary-label">Your average WPM</span>
+              </div>
+              <div className="stats-summary-tile">
+                <span className="stats-summary-value">{chapterExtra.activity.mine.wordsTyped.toLocaleString()}</span>
+                <span className="stats-summary-label">Your words written</span>
+              </div>
+              <div className="stats-summary-tile">
+                <span className="stats-summary-value">{formatDuration(chapterExtra.activity.mine.activeSeconds)}</span>
+                <span className="stats-summary-label">Your active writing time</span>
+              </div>
+            </>
           )}
           {workspace && (
             <>
+              <div className="stats-summary-tile">
+                <span className="stats-summary-value">{workspace.chapterCount.toLocaleString()}</span>
+                <span className="stats-summary-label">Chapters</span>
+              </div>
+              <div className="stats-summary-tile">
+                <span className="stats-summary-value">{workspace.completedChapterCount.toLocaleString()}</span>
+                <span className="stats-summary-label">Completed chapters</span>
+              </div>
+              <div className="stats-summary-tile">
+                <span className="stats-summary-value">{workspace.revisionCount.toLocaleString()}</span>
+                <span className="stats-summary-label">Revisions</span>
+              </div>
               <div className="stats-summary-tile">
                 <span className="stats-summary-value">{workspace.streak.current}</span>
                 <span className="stats-summary-label">
@@ -151,12 +255,20 @@ export default function StatsPage() {
                 </span>
               </div>
               <div className="stats-summary-tile">
-                <span className="stats-summary-value">{workspace.avgWpm}</span>
-                <span className="stats-summary-label">Words / minute (active)</span>
+                <span className="stats-summary-value">{formatWpm(workspace.avgWpm)}</span>
+                <span className="stats-summary-label">Your average WPM</span>
+              </div>
+              <div className="stats-summary-tile">
+                <span className="stats-summary-value">{workspace.wordsTyped.toLocaleString()}</span>
+                <span className="stats-summary-label">Your words written</span>
+              </div>
+              <div className="stats-summary-tile">
+                <span className="stats-summary-value">{workspace.wordsPasted.toLocaleString()}</span>
+                <span className="stats-summary-label">Your words pasted</span>
               </div>
               <div className="stats-summary-tile">
                 <span className="stats-summary-value">{formatDuration(workspace.totalActiveSeconds)}</span>
-                <span className="stats-summary-label">Active writing time</span>
+                <span className="stats-summary-label">Your active writing time</span>
               </div>
               <div className="stats-summary-tile">
                 <span className="stats-summary-value">{formatPercent(workspace.goalHitRate.percent)}</span>
@@ -170,7 +282,7 @@ export default function StatsPage() {
                   {workspace.weekOverWeekWords.thisWeek.toLocaleString()}
                 </span>
                 <span className="stats-summary-label">
-                  Words this week ({formatSignedPercent(workspace.weekOverWeekWords.percentChange)} vs last week)
+                  Your words this week ({formatSignedPercent(workspace.weekOverWeekWords.percentChange)} vs last week)
                 </span>
               </div>
             </>
@@ -179,7 +291,7 @@ export default function StatsPage() {
 
         {workspace?.busiestResource && (
           <p className="stats-busiest-resource">
-            Busiest chapter recently:{' '}
+            Your busiest chapter recently:{' '}
             <Link to={`/chapters/${workspace.busiestResource.chapterId}`}>{workspace.busiestResource.name}</Link>{' '}
             ({formatDuration(workspace.busiestResource.activeSeconds)} active)
           </p>
@@ -187,8 +299,8 @@ export default function StatsPage() {
 
         <div className="folder-section-header">
           <div>
-            <h2>Words per day</h2>
-            <p>Word count as of each day's last edit.</p>
+            <h2>{chartTitle}</h2>
+            <p>{chartDescription}</p>
           </div>
           <label className="stats-days-select">
             <span>Show</span>
@@ -220,6 +332,8 @@ export default function StatsPage() {
           </div>
         )}
       </section>
+
+      {resourceActivity && <ContributionStats activity={resourceActivity} />}
 
       {workspace && (
         <section className="folder-section">
@@ -270,8 +384,8 @@ export default function StatsPage() {
         <section className="folder-section">
           <div className="folder-section-header">
             <div>
-              <h2>Chapters in this sub-folder</h2>
-              <p>Revisions, recent velocity, and WPM per chapter.</p>
+              <h2>Chapters in this resource</h2>
+              <p>Every descendant chapter, with its revisions, contributor activity, and your average WPM.</p>
             </div>
           </div>
           {folderExtra.wordCountSpread && (
@@ -299,9 +413,9 @@ export default function StatsPage() {
                   <tr>
                     <th>Chapter</th>
                     <th>Revisions</th>
-                    <th>+words (7d)</th>
-                    <th>+words (30d)</th>
-                    <th>WPM</th>
+                    <th>Words written (all, 7d)</th>
+                    <th>Words written (all, 30d)</th>
+                    <th>Your average WPM</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -313,7 +427,7 @@ export default function StatsPage() {
                       <td>{c.versionCount}</td>
                       <td>{c.recentVelocity7d.toLocaleString()}</td>
                       <td>{c.recentVelocity30d.toLocaleString()}</td>
-                      <td>{c.wpm}</td>
+                      <td>{formatWpm(c.wpm)}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -12,6 +12,7 @@ body {
     line-height: 1.5;
     display: flex;
     height: 100vh;
+    height: 100dvh;
     overflow: hidden;
     margin: 0;
     background: var(--bg-color);
@@ -39,8 +40,10 @@ body.dark {
     flex-shrink: 0;
     background: var(--sidebar-bg);
     padding: 16px 14px;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
     overflow-y: auto;
     height: 100vh;
+    height: 100dvh;
     box-shadow: 2px 0 4px rgba(0,0,0,0.1);
     box-sizing: border-box;
     transition: width 0.15s ease, min-width 0.15s ease, padding 0.15s ease;
@@ -49,6 +52,7 @@ body.dark {
     width: 28px;
     min-width: 28px;
     padding: 16px 4px;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
     overflow: hidden;
     display: flex;
     justify-content: center;
@@ -77,6 +81,8 @@ body.dark {
         inset: 0 auto 0 0;
         z-index: 60;
         width: min(85vw, 320px);
+        height: 100vh;
+        height: 100dvh;
         box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
     }
 }
@@ -235,6 +241,7 @@ body.dark .sidebar-primary-goal-star {
 #main {
     flex: 1;
     padding: 40px;
+    padding-bottom: calc(40px + env(safe-area-inset-bottom));
     overflow-y: auto;
     box-sizing: border-box;
 }
@@ -497,6 +504,120 @@ body.chapter-view #chapter_area h1 {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+}
+.link-dialog {
+    width: min(100%, 560px);
+}
+.link-dialog-selection {
+    margin: -8px 0 16px;
+    overflow: hidden;
+    color: var(--text-color);
+    font-size: 0.82rem;
+    opacity: 0.68;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.link-kind-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    margin-bottom: 16px;
+    padding: 4px;
+    border-radius: 8px;
+    background: rgba(127, 127, 127, 0.12);
+}
+.link-kind-tabs button {
+    padding: 8px 10px;
+    border: none;
+    background: transparent;
+    color: var(--text-color);
+}
+.link-kind-tabs button.active {
+    background: var(--editor-bg);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.16);
+}
+.link-picker-panel > label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    opacity: 0.75;
+}
+.link-picker-panel > input {
+    width: 100%;
+    box-sizing: border-box;
+}
+.internal-reference-tree {
+    max-height: min(48vh, 360px);
+    margin-top: 10px;
+    overflow-y: auto;
+    border: 1px solid rgba(127, 127, 127, 0.25);
+    border-radius: 7px;
+}
+.internal-reference-option {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    gap: 8px;
+    padding-top: 8px;
+    padding-right: 10px;
+    padding-bottom: 8px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-color);
+    text-align: left;
+}
+.internal-reference-option:hover {
+    background: rgba(127, 127, 127, 0.14);
+}
+.internal-reference-option + .internal-reference-option {
+    border-top: 1px solid rgba(127, 127, 127, 0.1);
+}
+.internal-reference-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.internal-reference-option small {
+    margin-left: auto;
+    opacity: 0.5;
+}
+.internal-reference-type {
+    width: 13px;
+    height: 11px;
+    flex-shrink: 0;
+    border: 1.5px solid currentColor;
+    border-radius: 2px;
+    box-sizing: border-box;
+    opacity: 0.62;
+}
+.internal-reference-type.book {
+    border-width: 2px 1.5px;
+}
+.internal-reference-type.chapter {
+    width: 10px;
+    height: 13px;
+    border-radius: 1px;
+}
+.link-picker-status,
+.link-form-error {
+    margin: 0;
+    padding: 14px;
+    font-size: 0.82rem;
+    opacity: 0.65;
+}
+.link-picker-status.error,
+.link-form-error {
+    color: #b33a3a;
+    opacity: 1;
+}
+.link-form-error {
+    padding: 6px 0 0;
+}
+.link-picker-panel > .chapter-action {
+    margin-top: 14px;
 }
 .chapter-modal-danger {
     display: flex;
@@ -814,6 +935,27 @@ body.dark .history-diff-removed {
     opacity: 0.35;
     pointer-events: none;
 }
+#chapter_editor a {
+    color: #2563a8;
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+}
+body.dark #chapter_editor a {
+    color: #7eb7f0;
+}
+#chapter_editor a[data-calwriter-status="unavailable"] {
+    color: inherit;
+    cursor: not-allowed;
+    opacity: 0.58;
+    text-decoration-style: dashed;
+}
+#chapter_editor a[data-calwriter-status="unavailable"]::after {
+    content: ' (unavailable)';
+    font-size: 0.78em;
+    font-style: italic;
+}
 .chapter-tabs {
     display: flex;
     align-items: flex-end;
@@ -877,6 +1019,7 @@ body.dark .history-diff-removed {
     width: clamp(260px, 22vw, 340px);
     background: var(--sidebar-bg);
     padding: 18px;
+    padding-bottom: calc(18px + env(safe-area-inset-bottom));
     overflow: hidden;
     height: 100%;
     color: var(--text-color);
@@ -894,6 +1037,7 @@ body.dark .history-diff-removed {
     min-width: 28px;
     max-width: 28px;
     padding: 16px 4px;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
     overflow: hidden;
 }
 #notes_sidebar.collapsed .sidebar-reveal {
@@ -923,7 +1067,7 @@ body.dark .history-diff-removed {
     line-height: 1.35;
     opacity: 0.55;
 }
-#notes_sidebar.collapsed #notes_editor {
+#notes_sidebar.collapsed .notes-split {
     display: none;
 }
 .notes-header-actions {
@@ -968,9 +1112,19 @@ body.dark .history-diff-removed {
     cursor: ew-resize;
     background: #ccc;
 }
+/* Wraps the notes textarea and (when the chapter has sub-chapters) the
+   resizer + sub-chapters panel below it -- fills whatever vertical space
+   is left under the notes-header, and is what the resizer's drag math
+   measures against (see ChapterPage.tsx's handleResizerPointer* handlers). */
+.notes-split {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
 #notes_editor {
     width: 100%;
-    height: 100%;
+    flex: 1;
     box-sizing: border-box;
     min-height: 0;
     padding: 12px;
@@ -989,6 +1143,73 @@ body.dark .history-diff-removed {
 #notes_editor::placeholder {
     color: var(--text-color);
     opacity: 0.4;
+}
+/* Drag handle between the notes textarea and the sub-chapters panel --
+   only rendered when the chapter has sub-chapters. Dragging it up/down
+   sets subChaptersPanelHeight (persisted), overriding the panel's default
+   content-sized/50%-capped height. */
+.notes-vertical-resizer {
+    flex-shrink: 0;
+    height: 9px;
+    margin: 2px 0;
+    cursor: row-resize;
+    touch-action: none;
+    position: relative;
+}
+.notes-vertical-resizer::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 3px;
+    transform: translateY(-50%);
+    border-radius: 2px;
+    background: rgba(127, 127, 127, 0.3);
+}
+.notes-vertical-resizer:hover::after,
+.notes-vertical-resizer:active::after {
+    background: rgba(127, 127, 127, 0.6);
+}
+/* Content-sized by default (grows with however many sub-chapter links
+   there are), capped at half of .notes-split's height until the user
+   drags .notes-vertical-resizer -- see subChaptersPanelHeight in
+   ChapterPage.tsx, which switches this to an explicit flex-basis. */
+.sub-chapters-panel {
+    flex: 0 1 auto;
+    max-height: 50%;
+    min-height: 0;
+    overflow-y: auto;
+}
+.sub-chapters-panel-header {
+    font-size: 0.75rem;
+    font-weight: 600;
+    opacity: 0.55;
+    margin-bottom: 6px;
+}
+.sub-chapters-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.sub-chapters-list a {
+    display: block;
+    padding: 5px 8px;
+    margin: 0 -8px;
+    border-radius: 4px;
+    color: var(--text-color);
+    text-decoration: none;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.sub-chapters-list a:hover {
+    background: rgba(127, 127, 127, 0.14);
 }
 #editor {
     border: 1px solid #ccc;
@@ -1251,11 +1472,19 @@ body.dark .history-diff-removed {
 .icon-bulleted-list::before { content: '\2022\2261'; letter-spacing: 1px; }
 .icon-numbered-list::before { content: '1\2261'; letter-spacing: 1px; }
 .icon-checklist::before { content: '\2611\2261'; letter-spacing: 1px; }
+.icon-link::before { content: '\1F517'; font-size: 0.88rem; }
 .icon-hr::before { content: '\2015'; }
 .icon-find::before { content: '\1F50D'; }
 .icon-undo::before { content: '\21ba'; }
 .icon-redo::before { content: '\21bb'; }
 .icon-complete::before { content: '\2714'; }
+.link-selection-error {
+    align-self: center;
+    margin: 0 2px;
+    color: #9f2f2f;
+    font-size: 0.72rem;
+    white-space: nowrap;
+}
 .icon-complete.active {
     color: #2f9e5c;
     border-color: rgba(47, 158, 92, 0.4);
@@ -1287,12 +1516,17 @@ body.dark .history-diff-removed {
     align-items: center;
     justify-content: space-between;
     min-height: 32px;
-    padding: 0 18px;
+    padding: 0 18px env(safe-area-inset-bottom);
     border-top: 1px solid rgba(127, 127, 127, 0.2);
     box-sizing: border-box;
     background: var(--bg-color);
     font-size: 0.75rem;
     opacity: 0.7;
+}
+.chapter-writing-stats {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
 }
 .save-status {
     display: inline-flex;
@@ -1392,6 +1626,19 @@ body.dark .history-diff-removed {
     box-shadow: inset 0 2px 0 0 var(--text-color);
 }
 .tree .chapter-item.drag-over-bottom {
+    box-shadow: inset 0 -2px 0 0 var(--text-color);
+}
+/* A chapter row that's itself a collapsible container (see ChapterTreeNode)
+   -- unlike .chapter-item above, this carries no layout of its own (its
+   .item-line child handles that, same as a folder's <li>), just the
+   drag-affordance styling that's still chapter-specific. */
+.tree .chapter-node[draggable="true"] {
+    cursor: grab;
+}
+.tree .chapter-node.drag-over-top {
+    box-shadow: inset 0 2px 0 0 var(--text-color);
+}
+.tree .chapter-node.drag-over-bottom {
     box-shadow: inset 0 -2px 0 0 var(--text-color);
 }
 
@@ -2637,6 +2884,10 @@ body.dark .account-type-badge.admin {
     outline: 2px solid rgba(88, 123, 190, 0.55);
     outline-offset: 2px;
 }
+.setting-switch input:disabled + .setting-switch-track {
+    cursor: not-allowed;
+    opacity: 0.35;
+}
 .appearance-preview {
     margin-bottom: 14px;
 }
@@ -2894,7 +3145,8 @@ body.dark .account-type-badge.admin {
     font-size: 0.78rem;
     font-weight: 650;
 }
-.password-form input[type="password"] {
+.password-form input[type="password"],
+.password-form input[type="text"] {
     width: 100%;
     height: 38px;
     padding: 7px 9px;
@@ -2905,9 +3157,14 @@ body.dark .account-type-badge.admin {
     color: var(--text-color);
     font: inherit;
 }
-.password-form input[type="password"]:focus {
+.password-form input[type="password"]:focus,
+.password-form input[type="text"]:focus {
     outline: 2px solid rgba(88, 123, 190, 0.4);
     outline-offset: 1px;
+}
+.password-form label > small {
+    font-size: 0.7rem;
+    opacity: 0.58;
 }
 .settings-message {
     margin-top: 14px;

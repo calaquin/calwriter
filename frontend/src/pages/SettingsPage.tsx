@@ -250,7 +250,9 @@ export default function SettingsPage() {
         </section>
 
         <div className="settings-column">
+          <EditorStatsPanel />
           <AccountPanel />
+          <TimezonePanel />
           <ChangePasswordForm />
         </div>
       </div>
@@ -278,6 +280,127 @@ export default function SettingsPage() {
         </div>
       )}
     </div>
+  )
+}
+
+function EditorStatsPanel() {
+  const { data: settings } = useSettings()
+  const update = useUpdateSettings()
+
+  if (!settings) return null
+
+  return (
+    <section className="settings-panel editor-stats-panel">
+      <div className="settings-panel-header">
+        <div>
+          <h2>Editor stats</h2>
+          <p>Choose which personal writing details appear in every chapter footer.</p>
+        </div>
+      </div>
+      <label className="setting-toggle-row">
+        <span>
+          <strong>Show word count</strong>
+          <small>Display the chapter’s current total words.</small>
+        </span>
+        <span className="setting-switch">
+          <input
+            type="checkbox"
+            checked={settings.showWordCount}
+            onChange={(e) => update.mutate({ showWordCount: e.target.checked })}
+            aria-label="Show word count"
+          />
+          <span className="setting-switch-track" aria-hidden="true" />
+        </span>
+      </label>
+      <label className="setting-toggle-row">
+        <span>
+          <strong>Show average WPM</strong>
+          <small>Display your typed words per active writing minute. Requires word count.</small>
+        </span>
+        <span className="setting-switch">
+          <input
+            type="checkbox"
+            checked={settings.showAverageWpm}
+            disabled={!settings.showWordCount}
+            onChange={(e) => update.mutate({ showAverageWpm: e.target.checked })}
+            aria-label="Show average WPM"
+          />
+          <span className="setting-switch-track" aria-hidden="true" />
+        </span>
+      </label>
+    </section>
+  )
+}
+
+function TimezonePanel() {
+  const { user, updateTimezone } = useAuth()
+  const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  const [timezoneDraft, setTimezoneDraft] = useState<string | null>(null)
+  const timezone = timezoneDraft ?? user?.timezone ?? browserTimezone
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const timezones = typeof Intl.supportedValuesOf === 'function'
+    ? ['UTC', ...Intl.supportedValuesOf('timeZone').filter((zone) => zone !== 'UTC')]
+    : ['UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles']
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    setMessage(null)
+    try {
+      await updateTimezone(timezone.trim())
+      setTimezoneDraft(null)
+      setMessage({ type: 'success', text: 'Timezone updated.' })
+    } catch (err) {
+      setMessage({
+        type: 'error',
+        text: err instanceof ApiError ? err.message : 'Failed to update timezone',
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section className="settings-panel timezone-panel">
+      <div className="settings-panel-header">
+        <div>
+          <h2>Timezone</h2>
+          <p>Calendar days, goals, streaks, and writing hours use this IANA timezone.</p>
+        </div>
+      </div>
+      <form className="password-form" onSubmit={handleSubmit}>
+        <label>
+          <span>Timezone</span>
+          <input
+            type="text"
+            list="calwriter-timezones"
+            value={timezone}
+            onChange={(e) => {
+              setTimezoneDraft(e.target.value)
+              setMessage(null)
+            }}
+            placeholder="America/New_York"
+            autoComplete="off"
+            required
+          />
+          <small>Browser detected: {browserTimezone}</small>
+        </label>
+        <datalist id="calwriter-timezones">
+          {timezones.map((zone) => <option key={zone} value={zone} />)}
+        </datalist>
+        {message && <div className={`settings-message ${message.type}`} role="status">{message.text}</div>}
+        <div className="settings-form-actions">
+          <button
+            className="settings-primary-action"
+            type="submit"
+            disabled={saving || !timezone.trim() || timezone.trim() === user?.timezone}
+          >
+            {saving ? 'Saving…' : 'Save timezone'}
+          </button>
+        </div>
+      </form>
+    </section>
   )
 }
 

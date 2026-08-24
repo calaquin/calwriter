@@ -104,7 +104,7 @@ export default function GoalsPage() {
         {!isLoading && goals && goals.length === 0 && (
           <div className="home-empty-state">
             <strong>No goals yet</strong>
-            <span>Set a word-count or chapter-completion target to start tracking progress.</span>
+            <span>Set a words-written or chapter-completion target to start tracking progress.</span>
           </div>
         )}
         {!isLoading && visibleGoals.length > 0 && (

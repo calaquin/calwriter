@@ -14,8 +14,13 @@ const MAX_OPEN_TABS = 7
 export interface OpenTab {
   chapterId: string
   name: string
-  folderId: string
+  /** Exactly one of folderId/parentChapterId is set, mirroring
+   * ChapterSummary -- a nested chapter's immediate parent is another
+   * chapter, not a folder. */
+  folderId: string | null
   folderAccessible: boolean
+  parentChapterId: string | null
+  parentChapterAccessible: boolean
   bookId: string
 }
 
@@ -41,6 +46,15 @@ interface TabsContextValue {
 }
 
 const TabsContext = createContext<TabsContextValue | null>(null)
+
+/** Where to navigate when leaving a chapter (closing its last tab, or its
+ * own "back" arrow) -- its immediate parent chapter if it has one and it's
+ * accessible, else its containing folder if accessible, else the home page. */
+export function tabBackTarget(tab: Pick<OpenTab, 'folderId' | 'folderAccessible' | 'parentChapterId' | 'parentChapterAccessible'>): string {
+  if (tab.parentChapterId !== null) return tab.parentChapterAccessible ? `/chapters/${tab.parentChapterId}` : '/'
+  if (tab.folderId !== null) return tab.folderAccessible ? `/folders/${tab.folderId}` : '/'
+  return '/'
+}
 
 function loadTabs(): OpenTab[] {
   try {
@@ -114,6 +128,8 @@ export function TabsProvider({ children }: { children: ReactNode }) {
         current.name !== tab.name ||
         current.folderId !== tab.folderId ||
         current.folderAccessible !== tab.folderAccessible ||
+        current.parentChapterId !== tab.parentChapterId ||
+        current.parentChapterAccessible !== tab.parentChapterAccessible ||
         current.bookId !== tab.bookId
       ) {
         const next = [...tabs]

@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { useShortcutsModal } from '../context/ShortcutsModalContext'
 import { copyText } from '../utils/clipboard'
+import { api } from '../api/client'
+import type {
+  InternalReferenceResolution,
+  InternalReferenceTarget,
+  InternalReferenceTargetType,
+} from '../api/types'
+import LinkDialog from './LinkDialog'
 
 const FULL_WIDTH_KEY = 'calwriter:editorFullWidth'
 
@@ -30,8 +37,65 @@ function countWords(element: HTMLDivElement | null) {
   return text ? text.split(/\s+/).length : 0
 }
 
+function countPlainTextWords(text: string) {
+  const trimmed = text.trim()
+  return trimmed ? trimmed.split(/\s+/).length : 0
+}
+
 function execCmd(command: string, value?: string) {
   document.execCommand(command, false, value)
+}
+
+function internalReferenceIdentity(anchor: HTMLAnchorElement): {
+  targetType: InternalReferenceTargetType
+  targetId: string
+} | null {
+  const targetType = anchor.dataset.calwriterTargetType
+  const targetId = anchor.dataset.calwriterTargetId
+  if (!targetId || !['book', 'folder', 'chapter'].includes(targetType ?? '')) return null
+  return { targetType: targetType as InternalReferenceTargetType, targetId }
+}
+
+/** Resolution state is presentation-only. Never persist a temporary
+ * unavailable/resolving marker back into chapter content. */
+function serializeEditorHtml(editor: HTMLDivElement | null): string {
+  if (!editor) return ''
+  const clone = editor.cloneNode(true) as HTMLDivElement
+  for (const anchor of clone.querySelectorAll<HTMLAnchorElement>('a[data-calwriter-target-id]')) {
+    anchor.removeAttribute('data-calwriter-status')
+    anchor.removeAttribute('title')
+  }
+  return clone.innerHTML
+}
+
+/** How one contenteditable `input` event's DOM.InputEvent.inputType should
+ * be treated for writing-activity purposes. Fail-closed by design: only an
+ * explicit allowlist of genuine keyboard/composition inputTypes counts as
+ * 'typed' -- an unrecognized inputType (a browser gap, a future spec
+ * addition) falls to 'other' rather than defaulting to typed, since a
+ * missed word is a much safer failure than fabricated goal/WPM credit.
+ * Paste/drop aren't classified here -- their word counts come from the
+ * clipboard/dataTransfer content directly (see ChapterEditor's onPaste/
+ * onDrop), not from inputType, because a paste that replaces a selection
+ * has a net word-count delta that differs from the pasted content's own
+ * size (see the P0.2 spec's "select 100, paste 250" example). A pure,
+ * exported function so this classification is unit-testable on its own. */
+export type InputClassification = 'typed' | 'delete' | 'other'
+
+const TYPED_INPUT_TYPES = new Set([
+  'insertText',
+  'insertReplacementText',
+  'insertParagraph',
+  'insertLineBreak',
+  'insertCompositionText',
+  'insertFromComposition',
+])
+
+export function classifyInputType(inputType: string | null | undefined): InputClassification {
+  if (!inputType) return 'other'
+  if (TYPED_INPUT_TYPES.has(inputType)) return 'typed'
+  if (inputType.startsWith('delete')) return 'delete'
+  return 'other'
 }
 
 function AlignmentIcon({ align }: { align: 'left' | 'center' | 'right' }) {
@@ -260,16 +324,33 @@ export default function ChapterEditor({
   initialHtml,
   onChange,
   onWordCountChange,
+  onActivity,
+  onTypingInput,
   bookColor,
   writeMode,
   onToggleWriteMode,
   completed,
   onToggleComplete,
+  onNavigateInternalReference,
 }: {
   chapterId: string
   initialHtml: string
   onChange: (html: string) => void
   onWordCountChange?: (count: number) => void
+  /** Fired whenever an edit earns writing-activity credit, classified at
+   * the source -- see classifyInputType. Positive word growth from genuine
+   * typing reports typedWords; content actually brought in via clipboard
+   * paste or an external drop reports pastedWords (independent of net
+   * word-count delta -- pasting 250 words over a 100-word selection
+   * reports pastedWords: 250, not the net +150). Never both in one call. */
+  onActivity?: (delta: { typedWords: number; pastedWords: number }) => void
+  /** Fired for genuine keyboard/composition input (including deletes) even
+   * when it doesn't change word count -- e.g. "cat" -> "car". This is the
+   * signal active-writing-time should gate on, deliberately separate from
+   * onChange (which also fires for paste/formatting/programmatic edits)
+   * and from onActivity (which only fires on a word-count-affecting typed
+   * edit or a paste). */
+  onTypingInput?: () => void
   /** Resolved book color to tint the editor background with, or null/undefined
    * to leave the editor at its plain theme background. */
   bookColor?: string | null
@@ -279,17 +360,43 @@ export default function ChapterEditor({
   writeMode: boolean
   onToggleWriteMode: () => void
   /** Chapter's own completed_at !== null -- surfaced here too (also settable
-   * from Chapter Settings and the Book/Sub-Folder chapter list) so marking a
+   * from Chapter Settings and the Book/Folder chapter list) so marking a
    * chapter done doesn't require leaving the editor. Optional since not
    * every caller of this component (there is only one today, ChapterPage)
    * necessarily has permission to toggle it. */
   completed?: boolean
   onToggleComplete?: () => void
+  onNavigateInternalReference: (route: string) => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const characterPickerRef = useRef<HTMLDivElement>(null)
   const lastLoadedChapterId = useRef<string | null>(null)
+  // Word count as of the last processed mutation -- lets the onInput
+  // classifier compute a typed delta regardless of which code path last
+  // changed the DOM (toolbar command, markdown shortcut, raw typing, ...).
+  // Always kept in sync via reportWordCount below, never written directly.
+  const lastWordCountRef = useRef(0)
+  // Word count of the most recent paste/external-drop's own clipboard/
+  // dataTransfer plain text, set by onPaste/onDrop and consumed by the
+  // very next onInput event (insertFromPaste/insertFromDrop) -- this is
+  // what lets "pasted words" reflect the clipboard content's own size
+  // rather than the net word-count delta (see onActivity's docstring).
+  const pendingPasteWordsRef = useRef(0)
+  // True from onDragStart until onDrop/onDragEnd -- distinguishes an
+  // internal drag (reordering a paragraph within this same editor, which
+  // must not count as "words pasted") from a drop of external content.
+  const internalDragActiveRef = useRef(false)
+  // Set by runCommand (the toolbar-button helper) just before invoking
+  // execCommand, and consumed by the very next onInput event. This is what
+  // stops a programmatic execCommand call that happens to produce an
+  // inputType the classifier would otherwise treat as typing (e.g. the
+  // special-character picker's execCommand('insertText', char)) from being
+  // indistinguishable from real keyboard input.
+  const pendingSourceOverrideRef = useRef<'programmatic' | null>(null)
+  const savedLinkRangeRef = useRef<Range | null>(null)
   const [showCharacters, setShowCharacters] = useState(false)
+  const [linkSelection, setLinkSelection] = useState<string | null>(null)
+  const [linkSelectionError, setLinkSelectionError] = useState(false)
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle')
   const { open: openShortcuts } = useShortcutsModal()
   const [isFullWidth, setIsFullWidth] = useState(() => {
@@ -300,10 +407,43 @@ export default function ChapterEditor({
     }
   })
 
+  function reportWordCount(count: number) {
+    lastWordCountRef.current = count
+    onWordCountChange?.(count)
+  }
+
   async function copyAllText() {
     const text = ref.current?.innerText ?? ''
     setCopyStatus((await copyText(text)) ? 'copied' : 'error')
     setTimeout(() => setCopyStatus('idle'), 2000)
+  }
+
+  async function resolveInternalReference(anchor: HTMLAnchorElement) {
+    const identity = internalReferenceIdentity(anchor)
+    if (!identity) return null
+    anchor.dataset.calwriterStatus = 'resolving'
+    try {
+      const resolved = await api.get<InternalReferenceResolution>(
+        `/internal-references/${identity.targetType}/${encodeURIComponent(identity.targetId)}`,
+      )
+      if (anchor.isConnected) {
+        anchor.dataset.calwriterStatus = 'available'
+        anchor.title = `${resolved.name} — open ${resolved.targetType}`
+      }
+      return resolved
+    } catch {
+      if (anchor.isConnected) {
+        anchor.dataset.calwriterStatus = 'unavailable'
+        anchor.title = 'Reference unavailable'
+      }
+      return null
+    }
+  }
+
+  function refreshInternalReferences(editor: HTMLDivElement) {
+    for (const anchor of editor.querySelectorAll<HTMLAnchorElement>('a[data-calwriter-target-id]')) {
+      void resolveInternalReference(anchor)
+    }
   }
 
   // Only set innerHTML when we switch chapters, never on every render --
@@ -312,8 +452,15 @@ export default function ChapterEditor({
     if (ref.current && lastLoadedChapterId.current !== chapterId) {
       ref.current.innerHTML = initialHtml
       lastLoadedChapterId.current = chapterId
-      onWordCountChange?.(countWords(ref.current))
+      reportWordCount(countWords(ref.current))
+      // A chapter switch is a new editing session -- none of these should
+      // carry over and get attributed to the newly-loaded chapter.
+      pendingPasteWordsRef.current = 0
+      internalDragActiveRef.current = false
+      pendingSourceOverrideRef.current = null
+      refreshInternalReferences(ref.current)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chapterId, initialHtml, onWordCountChange])
 
   useEffect(() => {
@@ -335,15 +482,23 @@ export default function ChapterEditor({
   }, [showCharacters])
 
   function runCommand(command: string, value?: string) {
+    // Every toolbar-button command runs through here (this is the only
+    // execCommand call site reachable from a click rather than raw
+    // keystrokes) -- flagging it 'programmatic' up front stops e.g. the
+    // special-character picker's execCommand('insertText', char) from
+    // being indistinguishable from genuine typing to the onInput
+    // classifier, which would otherwise see the exact same 'insertText'
+    // inputType either way.
+    pendingSourceOverrideRef.current = 'programmatic'
     execCmd(command, value)
     ref.current?.focus()
-    onChange(ref.current?.innerHTML ?? '')
-    onWordCountChange?.(countWords(ref.current))
+    onChange(serializeEditorHtml(ref.current))
+    reportWordCount(countWords(ref.current))
   }
 
   function runParagraphIndent(remove: boolean) {
     if (ref.current && setFirstLineIndent(ref.current, remove)) {
-      onChange(ref.current.innerHTML)
+      onChange(serializeEditorHtml(ref.current))
     }
     ref.current?.focus()
   }
@@ -358,7 +513,13 @@ export default function ChapterEditor({
     const editor = ref.current
     if (!editor) return
     editor.focus()
-    if (!closestListItem(editor)) execCmd('insertUnorderedList')
+    if (!closestListItem(editor)) {
+      // Only set the override immediately before an execCommand call that
+      // will actually happen -- an unconsumed override would otherwise
+      // wrongly swallow the next real keystroke's typed credit.
+      pendingSourceOverrideRef.current = 'programmatic'
+      execCmd('insertUnorderedList')
+    }
     const selection = window.getSelection()
     const range = selection?.rangeCount ? selection.getRangeAt(0) : null
     const allItems = Array.from(editor.querySelectorAll('li'))
@@ -369,8 +530,8 @@ export default function ChapterEditor({
       li.classList.add('checklist-item')
       li.classList.toggle('checked', checked)
     }
-    onChange(editor.innerHTML)
-    onWordCountChange?.(countWords(editor))
+    onChange(serializeEditorHtml(editor))
+    reportWordCount(countWords(editor))
   }
 
   // Converts "- "/"* " to a bullet list, "1. " to a numbered list, and
@@ -388,17 +549,19 @@ export default function ChapterEditor({
     if (/^[-*]$/.test(text)) {
       e.preventDefault()
       clearBlockText(block)
+      pendingSourceOverrideRef.current = 'programmatic'
       execCmd('insertUnorderedList')
-      onChange(editor.innerHTML)
-      onWordCountChange?.(countWords(editor))
+      onChange(serializeEditorHtml(editor))
+      reportWordCount(countWords(editor))
       return true
     }
     if (/^\d+\.$/.test(text)) {
       e.preventDefault()
       clearBlockText(block)
+      pendingSourceOverrideRef.current = 'programmatic'
       execCmd('insertOrderedList')
-      onChange(editor.innerHTML)
-      onWordCountChange?.(countWords(editor))
+      onChange(serializeEditorHtml(editor))
+      reportWordCount(countWords(editor))
       return true
     }
     if (/^\[ ?\]$/.test(text)) {
@@ -428,6 +591,58 @@ export default function ChapterEditor({
     })
   }
 
+  function openLinkDialog() {
+    const editor = ref.current
+    const selection = window.getSelection()
+    if (!editor || !selection?.rangeCount) return
+    const range = selection.getRangeAt(0)
+    if (range.collapsed || !editor.contains(range.commonAncestorContainer) || !range.toString().trim()) {
+      setLinkSelectionError(true)
+      setTimeout(() => setLinkSelectionError(false), 2200)
+      return
+    }
+    savedLinkRangeRef.current = range.cloneRange()
+    setLinkSelection(range.toString().trim())
+    setLinkSelectionError(false)
+  }
+
+  function applyLink(href: string, target?: InternalReferenceTarget) {
+    const editor = ref.current
+    const range = savedLinkRangeRef.current
+    const selection = window.getSelection()
+    if (!editor || !range || !selection || !editor.contains(range.commonAncestorContainer)) {
+      setLinkSelection(null)
+      savedLinkRangeRef.current = null
+      return
+    }
+    editor.focus()
+    selection.removeAllRanges()
+    selection.addRange(range)
+    pendingSourceOverrideRef.current = 'programmatic'
+    execCmd('createLink', href)
+
+    const selectionNode = selection.anchorNode
+    const selectionElement = selectionNode instanceof HTMLElement ? selectionNode : selectionNode?.parentElement
+    const anchor = selectionElement?.closest<HTMLAnchorElement>('a') ?? null
+    if (anchor && editor.contains(anchor)) {
+      if (target) {
+        anchor.dataset.calwriterTargetType = target.targetType
+        anchor.dataset.calwriterTargetId = target.targetId
+        anchor.href = `calwriter://${target.targetType}/${target.targetId}`
+        anchor.dataset.calwriterStatus = 'available'
+        anchor.title = `${target.name} — open ${target.targetType}`
+      } else {
+        anchor.target = '_blank'
+        anchor.rel = 'noopener noreferrer'
+      }
+    }
+    onChange(serializeEditorHtml(editor))
+    reportWordCount(countWords(editor))
+    pendingSourceOverrideRef.current = null
+    savedLinkRangeRef.current = null
+    setLinkSelection(null)
+  }
+
   const tintStyle = bookColor
     ? ({ '--book-tint': `color-mix(in srgb, ${bookColor} 8%, var(--editor-bg))` } as CSSProperties)
     : undefined
@@ -449,6 +664,16 @@ export default function ChapterEditor({
         <button type="button" className="icon-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => runCommand('justifyLeft')} title="Align left" aria-label="Align left"><AlignmentIcon align="left" /></button>
         <button type="button" className="icon-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => runCommand('justifyCenter')} title="Center" aria-label="Center"><AlignmentIcon align="center" /></button>
         <button type="button" className="icon-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => runCommand('justifyRight')} title="Align right" aria-label="Align right"><AlignmentIcon align="right" /></button>
+        <span className="toolbar-divider" aria-hidden="true" />
+        <button
+          type="button"
+          className="icon-btn icon-link"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={openLinkDialog}
+          title="Link selected text"
+          aria-label="Link selected text"
+        />
+        {linkSelectionError && <span className="link-selection-error">Select text first</span>}
         <span className="toolbar-divider" aria-hidden="true" />
         <div className="special-character-control" ref={characterPickerRef}>
           <button
@@ -552,7 +777,7 @@ export default function ChapterEditor({
           ref={ref}
           contentEditable
           suppressContentEditableWarning
-          onInput={() => {
+          onInput={(e) => {
             const editor = ref.current
             if (editor) {
               const li = closestListItem(editor)
@@ -576,14 +801,66 @@ export default function ChapterEditor({
                 li.classList.remove('checked')
               }
             }
-            onChange(editor?.innerHTML ?? '')
-            onWordCountChange?.(countWords(editor))
+            const prevCount = lastWordCountRef.current
+            const newCount = countWords(editor)
+            onChange(serializeEditorHtml(editor))
+            reportWordCount(newCount)
+
+            // Consume the programmatic override first, before it can be
+            // confused with the native event's own inputType -- see
+            // pendingSourceOverrideRef's declaration.
+            const override = pendingSourceOverrideRef.current
+            pendingSourceOverrideRef.current = null
+            if (override === 'programmatic') return
+
+            const inputType = (e.nativeEvent as InputEvent).inputType
+            const isExternalPasteOrDrop =
+              inputType === 'insertFromPaste' || inputType === 'insertFromPasteAsQuotation' || inputType === 'insertFromDrop'
+            if (isExternalPasteOrDrop) {
+              const pasted = pendingPasteWordsRef.current
+              pendingPasteWordsRef.current = 0
+              // Independent of delta sign -- see onActivity's docstring:
+              // pasting over a selection can shrink the document while
+              // still bringing in a large pasted block.
+              if (pasted > 0) onActivity?.({ typedWords: 0, pastedWords: pasted })
+              return
+            }
+
+            const classification = classifyInputType(inputType)
+            if (classification === 'other') return
+            onTypingInput?.()
+            const delta = newCount - prevCount
+            if (classification === 'typed' && delta > 0) {
+              onActivity?.({ typedWords: delta, pastedWords: 0 })
+            }
           }}
           onKeyDown={(e) => {
             if (e.key === ' ' && handleMarkdownShortcut(e)) return
             if (handleEditorKeyDown(e)) {
-              onChange(ref.current?.innerHTML ?? '')
+              onChange(serializeEditorHtml(ref.current))
             }
+          }}
+          onPaste={(e) => {
+            const text = e.clipboardData?.getData('text/plain') ?? ''
+            pendingPasteWordsRef.current = countPlainTextWords(text)
+            // Native paste behavior (and its resulting formatting) is
+            // intentionally left alone -- only counting the clipboard's own
+            // word count for the classifier above, not intercepting the
+            // paste itself.
+          }}
+          onDragStart={() => {
+            internalDragActiveRef.current = true
+          }}
+          onDragEnd={() => {
+            internalDragActiveRef.current = false
+          }}
+          onDrop={(e) => {
+            // A drag that started inside this same editor (reordering a
+            // paragraph) must not count as "words pasted" -- only a drop
+            // whose content actually came from outside does.
+            const text = internalDragActiveRef.current ? '' : (e.dataTransfer?.getData('text/plain') ?? '')
+            pendingPasteWordsRef.current = countPlainTextWords(text)
+            internalDragActiveRef.current = false
           }}
           onMouseDown={(e) => {
             const li = (e.target as HTMLElement).closest?.('li.checklist-item') as HTMLLIElement | null
@@ -595,8 +872,16 @@ export default function ChapterEditor({
             if (e.clientX >= zoneLeft && e.clientX <= zoneRight) {
               e.preventDefault()
               li.classList.toggle('checked')
-              onChange(ref.current.innerHTML)
+              onChange(serializeEditorHtml(ref.current))
             }
+          }}
+          onClick={(e) => {
+            const anchor = (e.target as HTMLElement).closest?.('a') as HTMLAnchorElement | null
+            if (!anchor || !ref.current?.contains(anchor) || !internalReferenceIdentity(anchor)) return
+            e.preventDefault()
+            void resolveInternalReference(anchor).then((resolved) => {
+              if (resolved) onNavigateInternalReference(resolved.route)
+            })
           }}
           role="textbox"
           aria-multiline="true"
@@ -604,6 +889,18 @@ export default function ChapterEditor({
           data-placeholder="Start writing…"
         />
       </div>
+      {linkSelection !== null && (
+        <LinkDialog
+          selectedText={linkSelection}
+          onClose={() => {
+            savedLinkRangeRef.current = null
+            setLinkSelection(null)
+            ref.current?.focus()
+          }}
+          onExternal={(url) => applyLink(url)}
+          onInternal={(target) => applyLink(`calwriter://${target.targetType}/${target.targetId}`, target)}
+        />
+      )}
     </div>
   )
 }

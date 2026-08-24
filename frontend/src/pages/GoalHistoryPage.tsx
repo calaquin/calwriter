@@ -12,6 +12,7 @@ export default function GoalHistoryPage() {
   const goal = data?.goal
   const periods = data?.periods ?? []
   const chartPeriods = [...periods].reverse()
+  const progressUnit = goal?.goalType === 'words' ? 'words written' : 'chapters completed'
 
   return (
     <div className="folder-page">
@@ -40,7 +41,7 @@ export default function GoalHistoryPage() {
                 <div
                   className={`stats-bar goal-history-bar${p.achieved ? ' achieved' : ''}`}
                   style={{ height: `${Math.max(4, p.percent)}%` }}
-                  title={`${p.current.toLocaleString()} / ${p.target.toLocaleString()} (${p.percent}%)`}
+                  title={`${p.current.toLocaleString()} / ${p.target.toLocaleString()} ${progressUnit} (${p.percent}%)`}
                 />
                 <span className="stats-bar-day">{formatDate(p.periodStart)}</span>
               </div>
@@ -55,7 +56,7 @@ export default function GoalHistoryPage() {
                   {formatDate(p.periodStart)} – {formatDate(p.periodEnd)}
                 </span>
                 <span>
-                  {p.current.toLocaleString()} / {p.target.toLocaleString()} ({p.percent}%)
+                  {p.current.toLocaleString()} / {p.target.toLocaleString()} {progressUnit} ({p.percent}%)
                 </span>
                 <span className={`goal-pace-badge${p.achieved ? ' on-track' : ' behind'}`}>
                   {p.achieved ? 'Achieved' : 'Missed'}

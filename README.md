@@ -18,6 +18,20 @@ with other people as an editor or a read-only viewer.
 - Customizable colors and dark mode
 - Export/import your books as `.calwdb` archives
 
+### Backup and recovery contracts
+
+CalWriter provides two intentionally different recovery mechanisms:
+
+- A `.calwdb` archive is a portable copy of the books visible in the
+  exporting user's library. It preserves Books, Folders, nested Chapters,
+  ordering, prose, notes, descriptions, completion state, color settings,
+  and internal references. Import creates fresh resource UUIDs and remaps
+  references to other resources included in the same archive.
+- `.calwdb` does not contain accounts, shares, user settings, goals, goal
+  history, version history, presence, or writing-activity/stat telemetry.
+  Use a PostgreSQL dump/restore when recovering or cloning the complete
+  multi-user application state; that path preserves every UUID exactly.
+
 ## Running with Docker Compose
 
 CalWriter needs a Postgres database alongside the app itself, so it's run via

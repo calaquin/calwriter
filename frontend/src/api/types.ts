@@ -4,6 +4,8 @@ export interface Me {
   id: string
   username: string
   isAdmin: boolean
+  /** IANA identifier; null only until first-login browser detection finishes. */
+  timezone: string | null
   csrfToken: string
   version: string
 }
@@ -50,8 +52,14 @@ export interface FolderSummary {
 export interface ChapterSummary {
   id: string
   bookId: string
-  folderId: string
+  /** Exactly one of folderId/parentChapterId is ever set -- a chapter's
+   * immediate parent is either a Folder or another Chapter, never both. */
+  folderId: string | null
   folderAccessible: boolean
+  /** Set instead of folderId when this chapter is nested inside another
+   * chapter rather than sitting directly under a Folder. */
+  parentChapterId: string | null
+  parentChapterAccessible: boolean
   name: string
   description: string
   position: number
@@ -62,10 +70,23 @@ export interface ChapterSummary {
   showBookColor: boolean
   role: Role
   directShare: boolean
+  /** Whether this chapter has at least one child chapter -- drives whether
+   * the sidebar tree shows an expand arrow for it at all, computed
+   * server-side so the (common) case of a childless chapter never shows a
+   * misleading arrow while still lazy-loading children only on expand. */
+  hasChildren: boolean
 }
 
 export interface FolderDetail extends FolderSummary {
   folders: FolderSummary[]
+  chapters: ChapterSummary[]
+}
+
+/** GET /chapters/:id/tree-children -- a chapter's own direct child chapters,
+ * for the sidebar tree. Deliberately lighter than ChapterDetail (no
+ * contentHtml/notesText) since expanding a tree node shouldn't pull a
+ * chapter's full content along with it. */
+export interface ChapterTreeChildren {
   chapters: ChapterSummary[]
 }
 
@@ -77,6 +98,26 @@ export interface ChapterDetail extends ChapterSummary {
    * book root down to this chapter -- null if any of them opted out, or the
    * book has no color set. */
   bookColor: string | null
+}
+
+export type InternalReferenceTargetType = 'book' | 'folder' | 'chapter'
+
+/** A permission-filtered row in the editor's CalWriter-item picker. Depth is
+ * relative to the nearest readable root, so a narrow share never exposes the
+ * names (or even the number) of inaccessible ancestors. */
+export interface InternalReferenceTarget {
+  targetType: InternalReferenceTargetType
+  targetId: string
+  name: string
+  depth: number
+  bookName: string
+}
+
+export interface InternalReferenceResolution {
+  targetType: InternalReferenceTargetType
+  targetId: string
+  name: string
+  route: string
 }
 
 export interface Share {
@@ -106,6 +147,8 @@ export interface UserSettings {
   darkBgColor: string
   darkToolbarColor: string
   darkEditorColor: string
+  showWordCount: boolean
+  showAverageWpm: boolean
   openBookIds: string[]
   closedFolderIds: string[]
   closedChapterIds: string[]
@@ -161,17 +204,27 @@ export interface BusiestResource {
   activeSeconds: number
 }
 
-/** Workspace-scope stats: everything Stats has, plus the personal
- * (streak/heatmap/WPM/active-time) and resource-level (trend/busiest
- * resource) tiles that only make sense across the whole workspace. */
+/** Workspace-scope stats: document-state totals plus behavioral metrics
+ * scoped exclusively to the current user. */
 export interface WorkspaceStats extends Stats {
+  chapterCount: number
+  completedChapterCount: number
+  revisionCount: number
   streak: WritingStreak
   goalHitRate: GoalHitRate
   weekOverWeekWords: WeekOverWeekWords
   heatmap: HeatmapBucket[]
   busiestResource: BusiestResource | null
-  avgWpm: number
+  avgWpm: number | null
   totalActiveSeconds: number
+  /** All-time, personal (this user only) genuinely-typed word count --
+   * distinct from totalWords (the document's current size) and from
+   * wordsPasted below. */
+  wordsTyped: number
+  /** All-time, personal count of words brought in via paste or an external
+   * drop -- included in totalWords, but never in wordsTyped, goal
+   * progress, or WPM. */
+  wordsPasted: number
 }
 
 export interface StaleChapter {
@@ -192,21 +245,50 @@ export interface ChapterStatsBreakdown {
   versionCount: number
   recentVelocity7d: number
   recentVelocity30d: number
-  wpm: number
+  /** WPM for the viewer only; never a collaborator blend. */
+  wpm: number | null
+}
+
+export interface ActivityTotals {
+  wordsTyped: number
+  wordsPasted: number
+  activeSeconds: number
+}
+
+export interface ContributorStats extends ActivityTotals {
+  userId: string
+  username: string
+  /** Calculated from this contributor's words and active time only. */
+  wpm: number | null
+  isCurrentUser: boolean
+}
+
+export interface ResourceActivityStats {
+  /** Additive totals across every historical contributor in this scope. */
+  totals: ActivityTotals
+  /** The current viewer's contribution, including a zero row if needed. */
+  mine: ContributorStats
+  /** Historical attribution; not filtered when a contributor is unshared. */
+  contributors: ContributorStats[]
 }
 
 /** Folder-scope stats: Stats plus the stale-chapters list, sibling
  * word-count spread, and a per-chapter breakdown table. */
 export interface FolderStats extends Stats {
+  /** Recursive resource totals: all descendant folders and nested chapters. */
+  chapterCount: number
+  completedChapterCount: number
+  revisionCount: number
+  activity: ResourceActivityStats
   staleChapters: StaleChapter[]
   /** null when the folder has no direct-child chapters to compare. */
   wordCountSpread: WordCountSpread | null
   chapters: ChapterStatsBreakdown[]
 }
 
-/** Chapter-scope stats: Stats plus that chapter's own WPM. */
+/** Chapter-scope stats: document totals plus exact-chapter contributions. */
 export interface ChapterStats extends Stats {
-  wpm: number
+  activity: ResourceActivityStats
 }
 
 export interface ChapterVersionSummary {
@@ -223,6 +305,11 @@ export interface ChapterVersionDetail extends ChapterVersionSummary {
 export interface PresenceUser {
   userId: string
   username: string
+}
+
+export interface ChapterHeartbeatResult {
+  /** null until the user has recorded some active writing time here. */
+  averageWpm: number | null
 }
 
 export interface FolderTreeIds {

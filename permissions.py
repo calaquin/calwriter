@@ -37,16 +37,37 @@ def role_for_folder(folder: Folder) -> str | None:
 
 
 def role_for_chapter(chapter: Chapter) -> str | None:
+    """Resolve the current user's role on a chapter: owner of its book,
+    else the highest role granted by a share on this chapter or any
+    ancestor CHAPTER (a share on a parent chapter covers its nested
+    children, same "a share covers its own subtree" rule role_for_folder
+    already applies to folders), else falling through to the nearest
+    containing Folder's own ancestor-walk once the chapter-ancestor chain
+    reaches one (every chapter's ancestry terminates at a Folder eventually
+    -- chk_chapters_one_parent guarantees exactly one immediate parent,
+    never both/neither)."""
     book = db.session.get(Folder, chapter.book_id)
     if book is not None and book.owner_id == current_user.id:
         return 'owner'
 
-    direct = ResourceShare.query.filter_by(chapter_id=chapter.id, user_id=current_user.id).first()
-    best = direct.role.value if direct else None
-
-    folder = db.session.get(Folder, chapter.folder_id)
-    if folder is not None:
-        best = _best_role(best, role_for_folder(folder))
+    best = None
+    node = chapter
+    # Bounded, not services.HierarchyError-raising: this runs on every
+    # read, so corrupt/cyclic stored data should degrade to "no access"
+    # rather than 500 the whole page (services.chapter_depth etc. use the
+    # same ceiling but raise, since those guard a mutation).
+    for _ in range(64):
+        share = ResourceShare.query.filter_by(chapter_id=node.id, user_id=current_user.id).first()
+        if share is not None:
+            best = _best_role(best, share.role.value)
+        if node.folder_id is not None:
+            folder = db.session.get(Folder, node.folder_id)
+            if folder is not None:
+                best = _best_role(best, role_for_folder(folder))
+            break
+        node = db.session.get(Chapter, node.parent_chapter_id)
+        if node is None:
+            break
     return best
 
 

@@ -31,6 +31,11 @@ class User(UserMixin, db.Model):
     username: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # IANA identifier (e.g. America/New_York), never a fixed UTC offset.
+    # Nullable only until the browser records its detected zone after the
+    # user's first post-migration login; server-side calendar logic safely
+    # falls back to UTC during that brief window.
+    timezone: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped["DateTime"] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -102,17 +107,48 @@ class Folder(db.Model):
 
 
 class Chapter(db.Model):
+    """A chapter's immediate parent is exactly one of `folder_id` (a direct
+    child of a Folder) or `parent_chapter_id` (nested inside another
+    Chapter) -- never both, never neither, enforced by
+    chk_chapters_one_parent. `book_id` is always set regardless of which
+    kind of parent this chapter has (denormalized pointer to the root book,
+    same rationale as Folder.book_id) -- see services.HierarchyError and
+    friends for the depth/cycle rules governing how a chapter's parent may
+    change, and services.nearest_folder_for_chapter for resolving a nested
+    chapter's containing Folder when one is needed (book color, breadcrumb,
+    sharing ancestor-walk)."""
+
     __tablename__ = "chapters"
     __table_args__ = (
         UniqueConstraint("folder_id", "name", name="uq_chapters_folder_name"),
+        UniqueConstraint("parent_chapter_id", "name", name="uq_chapters_parent_chapter_name"),
+        CheckConstraint(
+            "(folder_id IS NOT NULL)::int + (parent_chapter_id IS NOT NULL)::int = 1",
+            name="chk_chapters_one_parent",
+        ),
         Index("ix_chapters_search_tsv", "search_tsv", postgresql_using="gin"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    folder_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("folders.id", ondelete="CASCADE"), nullable=False, index=True
+    folder_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("folders.id", ondelete="CASCADE"), index=True
     )
-    # Denormalized, same rationale as Folder.book_id.
+    # A chapter nested inside another chapter, instead of directly under a
+    # Folder -- exactly one of folder_id/parent_chapter_id is ever set (see
+    # class docstring). RESTRICT, not CASCADE (unlike Folder.parent_id):
+    # there's no trash/restore in this app, so deleting a chapter that still
+    # has children is rejected at the API layer with a friendly error
+    # before it would ever reach this constraint -- this is the backstop
+    # against any path that skips that check, not the primary guard. A
+    # chapter reads as a document to users, not a container, so silently
+    # cascading a delete through a nested outline would be a much worse
+    # surprise than folder delete's existing (and unrelated) cascade.
+    parent_chapter_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("chapters.id", ondelete="RESTRICT"), index=True
+    )
+    # Denormalized, same rationale as Folder.book_id. Set from whichever
+    # parent a chapter has; updated for an entire moved subtree when a
+    # cross-book move changes it (see services.validate_chapter_parent).
     book_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("folders.id", ondelete="CASCADE"), nullable=False, index=True
     )
@@ -150,6 +186,12 @@ class Chapter(db.Model):
     )
 
     folder = relationship("Folder", foreign_keys=[folder_id], back_populates="chapters")
+    # No passive_deletes=True here (unlike Folder.children): that flag means
+    # "trust the DB's ON DELETE CASCADE to handle it," which doesn't apply
+    # to parent_chapter_id's RESTRICT FK.
+    children = relationship(
+        "Chapter", foreign_keys=[parent_chapter_id], backref=db.backref("parent_chapter", remote_side=[id])
+    )
 
 
 class ChapterVersion(db.Model):
@@ -194,21 +236,37 @@ class ChapterPresence(db.Model):
     # services.record_writing_activity). NULL on a brand-new session (nothing
     # to diff against yet).
     last_word_count: Mapped[int | None] = mapped_column(Integer)
+    # Cumulative-since-editor-mount typed/pasted word totals reported at the
+    # previous heartbeat -- same idempotent-diff role as last_word_count,
+    # just for the input-source-aware counters (see
+    # api.api_heartbeat_chapter_presence). Unlike last_word_count these
+    # default to 0 rather than NULL: a brand-new session's true cumulative
+    # total is 0, not "unknown yet".
+    last_typed_words: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_pasted_words: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     user = relationship("User")
 
 
 class ChapterWritingActivity(db.Model):
     """Per-user, per-chapter, per-hour accumulation of active writing time and
-    words written, fed by the presence heartbeat (see
+    input-source-classified words, fed by the presence heartbeat (see
     api.api_heartbeat_chapter_presence / services.record_writing_activity).
-    An interval only counts as "active" if the client reports an edit
-    actually happened since the last heartbeat -- open-but-idle/reading time
-    is never accumulated, which is what makes WPM/active-time stats exclude
-    downtime. `hour_of_day` (0-23, local to the server) plus `date` lets one
-    table serve both day-granularity stats (streak, trend, velocity -- group
-    by date, ignore hour) and the day-of-week/time-of-day heatmap (group by
-    date's weekday + hour_of_day, ignore the specific date)."""
+    words_typed is genuine keyboard/composition authoring (goal- and
+    WPM-eligible); words_pasted is bulk content brought in via paste or an
+    external drop (counted toward total word count, never toward a goal or
+    WPM). An interval only counts as "active" (active_seconds) if the client
+    reports genuine typing/deleting input happened since the last heartbeat
+    -- open-but-idle/reading time, and paste-only intervals, are never
+    accumulated, which is what makes WPM/active-time stats exclude downtime
+    and immune to paste inflating them. `hour_of_day` (0-23, local to the
+    writer) plus `date` lets one table serve both day-granularity stats
+    (streak, trend, velocity -- group by date, ignore hour) and the
+    day-of-week/time-of-day heatmap (group by date's weekday + hour_of_day,
+    ignore the specific date). As of P0.6, `date` and `hour_of_day` are the
+    writer's local IANA-timezone calendar bucket at heartbeat time. Earlier
+    rows are retained unchanged because no raw event timestamp exists from
+    which to reconstruct their historical local bucket honestly."""
 
     __tablename__ = "chapter_writing_activity"
     __table_args__ = (
@@ -229,7 +287,8 @@ class ChapterWritingActivity(db.Model):
     date: Mapped["Date"] = mapped_column(Date, nullable=False)
     hour_of_day: Mapped[int] = mapped_column(Integer, nullable=False)
     active_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    words_written: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    words_typed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    words_pasted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     user = relationship("User")
     chapter = relationship("Chapter")
@@ -314,6 +373,10 @@ class UserSettings(db.Model):
     dark_bg_color: Mapped[str] = mapped_column(String(16), nullable=False, default="#222222")
     dark_toolbar_color: Mapped[str] = mapped_column(String(16), nullable=False, default="#555555")
     dark_editor_color: Mapped[str] = mapped_column(String(16), nullable=False, default="#444444")
+    # User-wide editor footer preferences. Average WPM is subordinate to the
+    # word-count display: the API forces it off when word count is hidden.
+    show_word_count: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    show_average_wpm: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     open_book_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID(as_uuid=True)), nullable=False, default=list)
     closed_folder_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID(as_uuid=True)), nullable=False, default=list)
     closed_chapter_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID(as_uuid=True)), nullable=False, default=list)
@@ -347,17 +410,24 @@ class GoalCadence(str, enum.Enum):
 
 class Goal(db.Model):
     """A personal writing target, scoped to one folder (book or sub-folder)
-    or one chapter. Always private to the user who set it -- even on a
-    shared resource, each collaborator tracks their own goal against that
-    resource's overall word/chapter count (there's no per-author
-    attribution in this app). A `chapters`-type goal only ever targets a
-    folder (chapter_id must be NULL); `words`-type goals can target either.
+    or one chapter. Always private to the user who set it. A `chapters`-type
+    goal only ever targets a folder (chapter_id must be NULL); `words`-type
+    goals can target either.
+
+    A `words`-type goal's progress is the *gross* words this user personally
+    typed into the target during the current period (see
+    services.resource_typed_words) -- not net change in the resource's total
+    word count. Deleting previously-typed text does not revoke earned
+    progress, pasted/programmatically-inserted text never earns any, and a
+    collaborator's own typing on a shared resource only ever advances their
+    own goal, never another user's. This is a deliberate measure-the-work
+    definition, not an accident of the underlying accounting.
 
     `cadence` doubles as the timeframe-type flag: set -> a recurring goal
     whose period re-anchors every daily/weekly/monthly boundary; NULL -> a
     one-time goal running from start_date to end_date. See
-    services.advance_goal_period for how period_start/baseline_word_count
-    are lazily rolled forward and (re)captured on read."""
+    services.advance_goal_period for how period_start is lazily rolled
+    forward on read."""
 
     __tablename__ = "goals"
     __table_args__ = (
@@ -384,9 +454,13 @@ class Goal(db.Model):
     # Current period's start, re-anchored on each rollover for a recurring
     # goal; fixed at start_date for a one-time goal.
     period_start: Mapped["Date"] = mapped_column(Date, nullable=False)
-    # Word count of the resource at period_start, captured lazily the first
-    # time the goal is read on/after that date -- NULL until then. Only used
-    # for goal_type == 'words'; progress is current_total - baseline.
+    # Dead column, kept only for same-release rollback safety (migrations
+    # auto-apply on boot over a populated DB -- dropping this immediately
+    # would break rolling the app back to a version that still reads it).
+    # No code path reads or writes this anymore: word-goal progress is now
+    # a live sum over ChapterWritingActivity.words_typed (see
+    # services.resource_typed_words), not a captured baseline diff. Slated
+    # for removal in a later cleanup migration.
     baseline_word_count: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped["DateTime"] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -397,10 +471,13 @@ class Goal(db.Model):
 
 class GoalPeriodHistory(db.Model):
     """A snapshot of one completed period of a *recurring* goal, recorded
-    the moment services.advance_goal_period() rolls past it. Goal itself
-    only ever tracks its current period's progress (see its baseline_word_count
-    comment) -- this is what lets a past day/week/month be shown after the
-    fact. Fixed-range goals never get rows here (they have exactly one
+    the moment services.advance_goal_period() rolls past it -- one row per
+    elapsed period, even if several rolled by unread between visits, since
+    progress is now a date-range sum (services.resource_typed_words) rather
+    than a single captured baseline that only the first skipped period
+    could ever have used. Goal itself only ever tracks its current period's
+    live progress -- this is what lets a past day/week/month be shown after
+    the fact. Fixed-range goals never get rows here (they have exactly one
     period, which is just the goal itself). Necessarily starts empty for
     every existing goal and only accumulates going forward -- there's no
     way to reconstruct periods that elapsed before this table existed."""

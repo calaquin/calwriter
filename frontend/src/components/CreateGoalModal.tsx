@@ -202,7 +202,7 @@ export default function CreateGoalModal({
                 aria-pressed={goalType === 'words'}
                 onClick={() => setGoalType('words')}
               >
-                Word count
+                Words written
               </button>
               {resourceType === 'folder' && (
                 <button
