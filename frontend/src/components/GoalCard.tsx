@@ -16,7 +16,7 @@ function daysBetween(fromIso: string, toIso: string): number {
 }
 
 export function goalDescription(goal: Goal): string {
-  const unit = goal.goalType === 'words' ? 'words' : 'chapters'
+  const unit = goalProgressUnit(goal)
   if (goal.cadence) {
     const base = `${goal.target.toLocaleString()} ${unit} / ${CADENCE_LABEL[goal.cadence]}`
     return goal.endDate ? `${base} until ${formatDate(goal.endDate)}` : base
@@ -24,9 +24,13 @@ export function goalDescription(goal: Goal): string {
   return `${goal.target.toLocaleString()} ${unit} by ${goal.endDate ? formatDate(goal.endDate) : '?'}`
 }
 
+export function goalProgressUnit(goal: Goal): string {
+  return goal.goalType === 'words' ? 'words written' : 'chapters completed'
+}
+
 function resourceBadge(goal: Goal): string {
   if (goal.resourceType === 'chapter') return 'Chapter'
-  return goal.resourceIsBook ? 'Book' : 'Sub-folder'
+  return goal.resourceIsBook ? 'Book' : 'Folder'
 }
 
 /** Pace stats: how fast progress is actually happening vs. how fast it
@@ -123,7 +127,7 @@ export default function GoalCard({
               />
             </div>
             <span className="goal-progress-label">
-              {goal.current.toLocaleString()} / {goal.target.toLocaleString()} ({goal.percent}%)
+              {goal.current.toLocaleString()} / {goal.target.toLocaleString()} {goalProgressUnit(goal)} ({goal.percent}%)
               {goal.achieved && ' ✓ Achieved'}
             </span>
             {pace && (

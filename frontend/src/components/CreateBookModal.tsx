@@ -88,7 +88,7 @@ export default function CreateBookModal({
             />
           </label>
           <label>
-            <span>Chapters sub-folder</span>
+            <span>Chapters folder</span>
             <input type="text" value={chapters} onChange={(e) => setChapters(e.target.value)} />
           </label>
 
@@ -104,7 +104,7 @@ export default function CreateBookModal({
           </label>
 
           <div className="wizard-extras">
-            <span>Additional sub-folders</span>
+            <span>Additional folders</span>
             <div className="wizard-extras-chips">
               {EXTRA_OPTIONS.map((name) => {
                 const active = extras.includes(name)

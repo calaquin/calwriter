@@ -57,7 +57,7 @@ export default function FolderSettingsModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">
-          <h2 id="folder-modal-title">Sub-folder settings</h2>
+          <h2 id="folder-modal-title">Folder settings</h2>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
             ×
           </button>
@@ -115,18 +115,18 @@ export default function FolderSettingsModal({
         </div>
 
         {canEdit && (
-          <SharingSection resourceType="folder" resourceId={folder.id} resourceNoun="sub-folder" collapsible />
+          <SharingSection resourceType="folder" resourceId={folder.id} resourceNoun="folder" collapsible />
         )}
 
         <div className="modal-section chapter-modal-danger">
           {onLeave && (
             <button type="button" className="folder-action danger" onClick={onLeave}>
-              Leave sub-folder
+              Leave folder
             </button>
           )}
           {canEdit && (
             <button type="button" className="folder-action danger" onClick={onDelete}>
-              Delete sub-folder
+              Delete folder
             </button>
           )}
         </div>

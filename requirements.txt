@@ -10,3 +10,4 @@ SQLAlchemy==2.0.35
 alembic==1.13.3
 psycopg2-binary==2.9.9
 Flask-Login==0.6.3
+pytest==8.3.3

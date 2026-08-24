@@ -7,12 +7,14 @@ import {
   useDeleteChapter,
   useChapterPresence,
   useChapterPresenceHeartbeat,
+  useChapterTreeChildren,
   useLeaveShare,
+  useSettings,
 } from '../api/hooks'
 import { ApiError } from '../api/client'
 import { useDebouncedCallback } from '../hooks/useDebouncedCallback'
 import { useBodyClass } from '../hooks/useBodyClass'
-import { useTabs } from '../context/TabsContext'
+import { useTabs, tabBackTarget } from '../context/TabsContext'
 import { useAuth } from '../context/AuthContext'
 import { useSidebarVisibility } from '../context/SidebarVisibilityContext'
 import ChapterEditor from '../components/ChapterEditor'
@@ -24,7 +26,12 @@ import { copyText } from '../utils/clipboard'
 
 const NOTES_COLLAPSED_KEY = 'calwriter:notesCollapsed'
 const WRITE_MODE_KEY = 'calwriter:writeMode'
+const SUBCHAPTERS_PANEL_HEIGHT_KEY = 'calwriter:subChaptersPanelHeight'
 const PRESENCE_HEARTBEAT_MS = 20000
+// Floors for the notes-editor/sub-chapters-panel split -- keep both regions
+// usable even after a drag or a viewport resize leaves little room to work with.
+const MIN_NOTES_HEIGHT = 80
+const MIN_SUBCHAPTERS_PANEL_HEIGHT = 60
 
 function isConflict(err: unknown): boolean {
   return err instanceof ApiError && err.status === 409
@@ -34,6 +41,7 @@ export default function ChapterPage() {
   const { chapterId } = useParams()
   const id = chapterId
   const { data: chapter, isLoading, error } = useChapter(id)
+  const { data: settings } = useSettings()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const qc = useQueryClient()
@@ -54,18 +62,33 @@ export default function ChapterPage() {
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved')
   const [hasConflict, setHasConflict] = useState(false)
   const [wordCount, setWordCount] = useState(0)
+  const [averageWpm, setAverageWpm] = useState<number | null>(null)
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle')
   const [notesCopyStatus, setNotesCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle')
   const pendingContentRef = useRef('')
   const notesRef = useRef<HTMLTextAreaElement>(null)
-  // Mirrors of wordCount/"an edit happened" for the heartbeat interval below.
+  // Mirrors of wordCount/writing-activity for the heartbeat interval below.
   // That interval is deliberately created once per chapter (deps: [id], see
   // its own comment) so it never sees fresh state through closure -- refs,
   // updated on every word-count/content change, are what let each 20s tick
   // report live values instead of whatever they were when the interval was
   // created.
   const wordCountRef = useRef(0)
-  const typedSinceHeartbeatRef = useRef(false)
+  // Cumulative *since this chapter was opened* typed/pasted word totals --
+  // deliberately never reset by a successful heartbeat (only by opening a
+  // different chapter, i.e. the interval effect re-running below). The
+  // server diffs these against its own last-recorded totals the same way
+  // it already does for wordCountRef, which is what makes the transport
+  // self-healing: a dropped heartbeat's words are caught up by the next
+  // one instead of lost, and a duplicated heartbeat can't double-credit.
+  const typedWordsTotalRef = useRef(0)
+  const pastedWordsTotalRef = useRef(0)
+  // Unlike the two totals above, this one *is* reset after each heartbeat
+  // send -- it's a lower-stakes "did genuine typing/deleting input happen
+  // this interval" boolean gating active-writing-seconds, not a word count,
+  // so losing one interval's worth on a dropped request is an acceptable
+  // (and pre-existing-shape) risk.
+  const hadTypingSinceHeartbeatRef = useRef(false)
 
   const hasUnsavedChanges = saveStatus !== 'saved'
   const blocker = useBlocker(hasUnsavedChanges)
@@ -97,12 +120,28 @@ export default function ChapterPage() {
 
   const heartbeat = useChapterPresenceHeartbeat(id)
   const { data: presentUsers } = useChapterPresence(id)
+  const { data: subChapters } = useChapterTreeChildren(chapter?.hasChildren ? chapter.id : undefined)
 
   useEffect(() => {
     if (!id) return
+    // New chapter, new editing session -- the cumulative totals restart at
+    // 0 (the server-side diff self-corrects against its own last-recorded
+    // values regardless, but starting clean here matches ChapterEditor
+    // resetting its own mirrors on the same chapter-switch boundary).
+    typedWordsTotalRef.current = 0
+    pastedWordsTotalRef.current = 0
+    hadTypingSinceHeartbeatRef.current = false
+    setAverageWpm(null)
     function fireHeartbeat() {
-      heartbeat.mutate({ wordCount: wordCountRef.current, typed: typedSinceHeartbeatRef.current })
-      typedSinceHeartbeatRef.current = false
+      heartbeat.mutate({
+        wordCount: wordCountRef.current,
+        typedWordsTotal: typedWordsTotalRef.current,
+        pastedWordsTotal: pastedWordsTotalRef.current,
+        hadTypingInput: hadTypingSinceHeartbeatRef.current,
+      }, {
+        onSuccess: (result) => setAverageWpm(result.averageWpm),
+      })
+      hadTypingSinceHeartbeatRef.current = false
     }
     fireHeartbeat()
     const interval = setInterval(fireHeartbeat, PRESENCE_HEARTBEAT_MS)
@@ -130,6 +169,61 @@ export default function ChapterPage() {
       }
       return next
     })
+  }
+
+  // The user-dragged height of the sub-chapters panel, in px -- null means
+  // "no override yet", i.e. fall back to the CSS default (natural content
+  // height, capped at 50% of the notes/sub-chapters split area). A global
+  // preference like notesCollapsed/writeMode above, not per-chapter: it's a
+  // "how much room do I like for this kind of panel" setting, not something
+  // tied to any one chapter's content.
+  const [subChaptersPanelHeight, setSubChaptersPanelHeight] = useState<number | null>(() => {
+    try {
+      const stored = localStorage.getItem(SUBCHAPTERS_PANEL_HEIGHT_KEY)
+      return stored !== null ? Number(stored) : null
+    } catch {
+      return null
+    }
+  })
+  const notesSplitRef = useRef<HTMLDivElement>(null)
+  // Mirrors subChaptersPanelHeight during a drag so pointer-up can persist
+  // the latest value without racing the setState/re-render cycle.
+  const subChaptersPanelHeightRef = useRef(subChaptersPanelHeight)
+  const resizeDragRef = useRef<{ pointerId: number; startY: number; startHeight: number } | null>(null)
+
+  function handleResizerPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    const panelEl = notesSplitRef.current?.querySelector<HTMLElement>('.sub-chapters-panel')
+    if (!panelEl) return
+    resizeDragRef.current = { pointerId: e.pointerId, startY: e.clientY, startHeight: panelEl.getBoundingClientRect().height }
+    e.currentTarget.setPointerCapture(e.pointerId)
+    document.body.style.userSelect = 'none'
+  }
+
+  function handleResizerPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    const drag = resizeDragRef.current
+    const splitEl = notesSplitRef.current
+    if (!drag || !splitEl) return
+    const availableHeight = splitEl.getBoundingClientRect().height
+    const maxPanelHeight = Math.max(MIN_SUBCHAPTERS_PANEL_HEIGHT, availableHeight - MIN_NOTES_HEIGHT)
+    // Dragging the handle up (cursor Y decreases) grows the panel below it.
+    const delta = drag.startY - e.clientY
+    const next = Math.min(maxPanelHeight, Math.max(MIN_SUBCHAPTERS_PANEL_HEIGHT, drag.startHeight + delta))
+    subChaptersPanelHeightRef.current = next
+    setSubChaptersPanelHeight(next)
+  }
+
+  function handleResizerPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    if (!resizeDragRef.current) return
+    resizeDragRef.current = null
+    e.currentTarget.releasePointerCapture(e.pointerId)
+    document.body.style.userSelect = ''
+    try {
+      if (subChaptersPanelHeightRef.current !== null) {
+        localStorage.setItem(SUBCHAPTERS_PANEL_HEIGHT_KEY, String(subChaptersPanelHeightRef.current))
+      }
+    } catch {
+      // ignore -- the chosen height just won't persist across reloads
+    }
   }
 
   const [writeMode, setWriteMode] = useState(() => {
@@ -176,8 +270,8 @@ export default function ChapterPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastAutoClosed?.key])
 
-  const update = useUpdateChapter(id ?? '', chapter?.folderId ?? '')
-  const del = useDeleteChapter(chapter?.folderId ?? '')
+  const update = useUpdateChapter(id ?? '', chapter?.folderId ?? undefined)
+  const del = useDeleteChapter(chapter?.folderId ?? undefined)
   const leaveShare = useLeaveShare()
 
   useEffect(() => {
@@ -187,6 +281,8 @@ export default function ChapterPage() {
         name: chapter.name,
         folderId: chapter.folderId,
         folderAccessible: chapter.folderAccessible,
+        parentChapterId: chapter.parentChapterId,
+        parentChapterAccessible: chapter.parentChapterAccessible,
         bookId: chapter.bookId,
       })
     }
@@ -268,7 +364,7 @@ export default function ChapterPage() {
     del.mutate(chapter!.id, {
       onSuccess: () => {
         closeTab(chapter!.id)
-        navigate(chapter!.folderAccessible ? `/folders/${chapter!.folderId}` : '/')
+        navigate(tabBackTarget(chapter!))
       },
     })
   }
@@ -293,8 +389,8 @@ export default function ChapterPage() {
         {!writeMode && (
           <header className="chapter-header">
             <div className="chapter-title-group">
-              {chapter.folderAccessible && (
-                <Link className="chapter-back" to={`/folders/${chapter.folderId}`} aria-label="Back to folder" title="Back to folder">
+              {(chapter.parentChapterId !== null ? chapter.parentChapterAccessible : chapter.folderAccessible) && (
+                <Link className="chapter-back" to={tabBackTarget(chapter)} aria-label="Back" title="Back">
                   <span aria-hidden="true">&#8592;</span>
                 </Link>
               )}
@@ -386,7 +482,6 @@ export default function ChapterPage() {
           initialHtml={chapter.contentHtml}
           onChange={(html) => {
             pendingContentRef.current = html
-            typedSinceHeartbeatRef.current = true
             setSaveStatus('saving')
             saveContent(html)
           }}
@@ -394,14 +489,32 @@ export default function ChapterPage() {
             wordCountRef.current = count
             setWordCount(count)
           }}
+          onActivity={({ typedWords, pastedWords }) => {
+            typedWordsTotalRef.current += typedWords
+            pastedWordsTotalRef.current += pastedWords
+          }}
+          onTypingInput={() => {
+            hadTypingSinceHeartbeatRef.current = true
+          }}
           bookColor={chapter.bookColor}
           writeMode={writeMode}
           onToggleWriteMode={toggleWriteMode}
           completed={chapter.completedAt !== null}
           onToggleComplete={chapter.role !== 'viewer' ? () => handleToggleComplete(chapter.completedAt === null) : undefined}
+          onNavigateInternalReference={(route) => navigate(route)}
         />
         <footer className="chapter-statusbar" aria-live="polite">
-          <span>{wordCount.toLocaleString()} {wordCount === 1 ? 'word' : 'words'}</span>
+          {settings?.showWordCount && (
+            <span className="chapter-writing-stats">
+              <span>Words: {wordCount.toLocaleString()}</span>
+              {settings.showAverageWpm && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span>Avg WPM: {averageWpm === null ? '—' : averageWpm.toFixed(1)}</span>
+                </>
+              )}
+            </span>
+          )}
           <span className={`save-status ${saveStatus}`}>
             <span className="save-status-dot" aria-hidden="true" />
             {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'error' ? 'Could not save' : 'Saved'}
@@ -462,17 +575,45 @@ export default function ChapterPage() {
             </div>
           </div>
         )}
-        <textarea
-          id="notes_editor"
-          ref={notesRef}
-          aria-label="Chapter notes"
-          placeholder="Ideas, reminders, research…"
-          defaultValue={chapter.notesText}
-          onChange={(e) => {
-            setSaveStatus('saving')
-            saveNotes(e.target.value)
-          }}
-        />
+        <div className="notes-split" ref={notesSplitRef}>
+          <textarea
+            id="notes_editor"
+            ref={notesRef}
+            aria-label="Chapter notes"
+            placeholder="Ideas, reminders, research…"
+            defaultValue={chapter.notesText}
+            onChange={(e) => {
+              setSaveStatus('saving')
+              saveNotes(e.target.value)
+            }}
+          />
+          {subChapters && subChapters.chapters.length > 0 && (
+            <>
+              <div
+                className="notes-vertical-resizer"
+                role="separator"
+                aria-orientation="horizontal"
+                aria-label="Resize sub-chapters panel"
+                onPointerDown={handleResizerPointerDown}
+                onPointerMove={handleResizerPointerMove}
+                onPointerUp={handleResizerPointerUp}
+              />
+              <div
+                className="sub-chapters-panel"
+                style={subChaptersPanelHeight !== null ? { flex: `0 1 ${subChaptersPanelHeight}px`, maxHeight: 'none' } : undefined}
+              >
+                <div className="sub-chapters-panel-header">Sub-chapters</div>
+                <ul className="sub-chapters-list">
+                  {subChapters.chapters.map((c) => (
+                    <li key={c.id}>
+                      <Link to={`/chapters/${c.id}`}>{c.name}</Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   )

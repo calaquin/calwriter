@@ -9,6 +9,7 @@ from io import BytesIO
 from flask import Blueprint, jsonify, request, send_file
 from flask_login import current_user, login_user, logout_user
 from flask_wtf.csrf import generate_csrf
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from extensions import db, csrf
@@ -53,6 +54,16 @@ from services import (
     folder_chapters_recursive,
     get_user_settings,
     descendant_folder_ids,
+    descendant_chapter_ids,
+    chapter_ids_under_folder,
+    chapter_ids_with_children,
+    nearest_folder_for_chapter,
+    lock_books_for_hierarchy_change,
+    validate_folder_parent,
+    validate_chapter_parent,
+    HierarchyError,
+    MAX_FOLDER_DEPTH,
+    MAX_CHAPTER_DEPTH,
     next_folder_position,
     next_chapter_position,
     create_book,
@@ -64,7 +75,7 @@ from services import (
     import_books_zip,
     snapshot_chapter_version,
     advance_goal_period,
-    resource_word_count,
+    resource_typed_words,
     resource_completed_chapter_count,
     advance_date_by_cadence,
     record_writing_activity,
@@ -72,6 +83,11 @@ from services import (
     chapter_last_activity_date,
     MAX_HEARTBEAT_ELAPSED,
     STALE_CHAPTER_DAYS,
+    is_valid_timezone,
+    user_local_datetime,
+    user_local_today,
+    writing_activity_totals,
+    writing_activity_contributions,
 )
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
@@ -79,6 +95,14 @@ api_bp = Blueprint('api', __name__, url_prefix='/api')
 
 def error(message, status=400):
     return jsonify({'error': message}), status
+
+
+@api_bp.errorhandler(HierarchyError)
+def handle_hierarchy_error(exc):
+    """Every hierarchy-mutating endpoint (create/move for both chapters and
+    folders) raises HierarchyError for a depth/cycle/cross-book violation --
+    caught once here instead of each endpoint wrapping its own try/except."""
+    return error(str(exc), 400)
 
 
 def parse_uuid(value) -> uuid.UUID | None:
@@ -89,6 +113,17 @@ def parse_uuid(value) -> uuid.UUID | None:
         return uuid.UUID(str(value))
     except (ValueError, AttributeError, TypeError):
         return None
+
+
+def me_to_dict(user: User) -> dict:
+    return {
+        'id': user.id,
+        'username': user.username,
+        'isAdmin': user.is_admin,
+        'timezone': user.timezone,
+        'csrfToken': generate_csrf(),
+        'version': VERSION,
+    }
 
 
 def export_filename(book: Folder, name: str, ext: str) -> str:
@@ -152,13 +187,29 @@ def folder_to_dict(folder: Folder) -> dict:
     }
 
 
-def chapter_summary_dict(chapter: Chapter) -> dict:
-    folder = db.session.get(Folder, chapter.folder_id)
+def chapter_summary_dict(chapter: Chapter, *, has_children: bool | None = None) -> dict:
+    """`has_children` lets a list endpoint pass in a pre-computed batched
+    result (see services.chapter_ids_with_children) instead of this doing
+    its own existence-check query per chapter -- pass it whenever calling
+    this in a loop. Falls back to a single-chapter query when omitted
+    (single-resource callers like chapter_detail_dict)."""
+    if chapter.folder_id is not None:
+        folder = db.session.get(Folder, chapter.folder_id)
+        folder_accessible = folder is not None and role_for_folder(folder) is not None
+        parent_chapter_id = None
+        parent_chapter_accessible = False
+    else:
+        parent_chapter = db.session.get(Chapter, chapter.parent_chapter_id)
+        folder_accessible = False
+        parent_chapter_id = chapter.parent_chapter_id
+        parent_chapter_accessible = parent_chapter is not None and role_for_chapter(parent_chapter) is not None
     return {
         'id': chapter.id,
         'bookId': chapter.book_id,
         'folderId': chapter.folder_id,
-        'folderAccessible': folder is not None and role_for_folder(folder) is not None,
+        'folderAccessible': folder_accessible,
+        'parentChapterId': parent_chapter_id,
+        'parentChapterAccessible': parent_chapter_accessible,
         'name': chapter.name,
         'description': chapter.description,
         'position': chapter.position,
@@ -168,6 +219,10 @@ def chapter_summary_dict(chapter: Chapter) -> dict:
         'role': role_for_chapter(chapter),
         'directShare': ResourceShare.query.filter_by(chapter_id=chapter.id, user_id=current_user.id).first()
         is not None,
+        'hasChildren': (
+            has_children if has_children is not None
+            else Chapter.query.filter_by(parent_chapter_id=chapter.id).first() is not None
+        ),
     }
 
 
@@ -175,10 +230,13 @@ def chapter_effective_book_color(chapter: Chapter) -> str | None:
     """The color the chapter's editor should tint its background with, or
     None if it shouldn't be tinted at all. Requires the chapter's own
     show_book_color AND every ancestor folder's AND the book root's to all
-    be true -- any single level along the chain can opt the chapter out."""
+    be true -- any single level along the chain can opt the chapter out.
+    nearest_folder_for_chapter resolves a nested chapter's containing
+    Folder first (its own folder_id is NULL), then this walks that
+    Folder's own ancestor chain exactly as before."""
     if not chapter.show_book_color:
         return None
-    node = db.session.get(Folder, chapter.folder_id)
+    node = nearest_folder_for_chapter(chapter)
     while node is not None:
         if not node.show_book_color:
             return None
@@ -211,13 +269,132 @@ def chapter_version_summary_dict(version: ChapterVersion) -> dict:
     }
 
 
+def internal_reference_resolution(target_type: str, target_id: uuid.UUID) -> dict | None:
+    """Resolve a typed UUID only when the current user can read its target.
+
+    Returning None for both a missing row and an inaccessible row is
+    deliberate: callers must not be able to use references to probe private
+    workspace structure. Book and folder are both Folder rows, so the parent
+    shape check also prevents a mismatched type from resolving accidentally.
+    """
+    if target_type == 'book':
+        target = db.session.get(Folder, target_id)
+        if target is None or target.parent_id is not None or role_for_folder(target) is None:
+            return None
+        route = f'/folders/{target.id}'
+    elif target_type == 'folder':
+        target = db.session.get(Folder, target_id)
+        if target is None or target.parent_id is None or role_for_folder(target) is None:
+            return None
+        route = f'/folders/{target.id}'
+    elif target_type == 'chapter':
+        target = db.session.get(Chapter, target_id)
+        if target is None or role_for_chapter(target) is None:
+            return None
+        route = f'/chapters/{target.id}'
+    else:
+        return None
+    return {
+        'targetType': target_type,
+        'targetId': target.id,
+        'name': target.name,
+        'route': route,
+    }
+
+
+def internal_reference_picker_items() -> list[dict]:
+    """All Book/Folder/Chapter targets readable by the current user.
+
+    Whole-book access is walked from the root. Narrow direct shares surface
+    as additional depth-zero roots only when their immediate parent is not
+    readable; descendants inherit that access and are walked normally. This
+    preserves a useful tree without exposing names of inaccessible ancestors.
+    """
+    items = []
+    seen_folders = set()
+    seen_chapters = set()
+
+    def add_item(target_type, target, depth):
+        book = db.session.get(Folder, target.book_id)
+        items.append({
+            'targetType': target_type,
+            'targetId': target.id,
+            'name': target.name,
+            'depth': depth,
+            # Shared-with-me already exposes this containing-book label for a
+            # narrow share; it is context, not proof the book itself is readable.
+            'bookName': book.name if book is not None else '',
+        })
+
+    def walk_chapter(chapter, depth):
+        if chapter.id in seen_chapters:
+            return
+        seen_chapters.add(chapter.id)
+        add_item('chapter', chapter, depth)
+        children = (
+            Chapter.query.filter_by(parent_chapter_id=chapter.id)
+            .order_by(Chapter.position, Chapter.created_at).all()
+        )
+        for child in children:
+            walk_chapter(child, depth + 1)
+
+    def walk_folder(folder, depth, *, is_book=False):
+        if folder.id in seen_folders:
+            return
+        seen_folders.add(folder.id)
+        add_item('book' if is_book else 'folder', folder, depth)
+        subfolders = (
+            Folder.query.filter_by(parent_id=folder.id)
+            .order_by(Folder.position, Folder.created_at).all()
+        )
+        for child in subfolders:
+            walk_folder(child, depth + 1)
+        chapters = (
+            Chapter.query.filter_by(folder_id=folder.id)
+            .order_by(Chapter.position, Chapter.created_at).all()
+        )
+        for chapter in chapters:
+            walk_chapter(chapter, depth + 1)
+
+    for book in ordered_accessible_books():
+        walk_folder(book, 0, is_book=True)
+
+    shared_folders, shared_chapters = shared_items()
+    narrow_roots = []
+    for folder in shared_folders:
+        parent = db.session.get(Folder, folder.parent_id)
+        if parent is None or role_for_folder(parent) is None:
+            narrow_roots.append(('folder', folder))
+    for chapter in shared_chapters:
+        if chapter.folder_id is not None:
+            parent = db.session.get(Folder, chapter.folder_id)
+            parent_accessible = parent is not None and role_for_folder(parent) is not None
+        else:
+            parent = db.session.get(Chapter, chapter.parent_chapter_id)
+            parent_accessible = parent is not None and role_for_chapter(parent) is not None
+        if not parent_accessible:
+            narrow_roots.append(('chapter', chapter))
+
+    def narrow_root_sort_key(entry):
+        book = db.session.get(Folder, entry[1].book_id)
+        return ((book.name if book is not None else '').lower(), entry[1].name.lower())
+
+    narrow_roots.sort(key=narrow_root_sort_key)
+    for target_type, target in narrow_roots:
+        if target_type == 'folder':
+            walk_folder(target, 0)
+        else:
+            walk_chapter(target, 0)
+    return items
+
+
 def resource_breadcrumb(folder: Folder | None = None, chapter: Chapter | None = None) -> list:
     """Ancestor folders from the book root down to (but not including) the
     resource itself -- empty for a book (no ancestors) or anything sitting
     directly in a book's root. Only the book entry carries a color, same
     isBook-gated convention as goal_resource_info/FolderTreeNode."""
     if chapter is not None:
-        start = db.session.get(Folder, chapter.folder_id)
+        start = nearest_folder_for_chapter(chapter)
     elif folder is not None and folder.parent_id is not None:
         start = db.session.get(Folder, folder.parent_id)
     else:
@@ -261,6 +438,7 @@ def goal_resource_info(goal: Goal) -> dict:
 
 
 def goal_progress(goal: Goal) -> dict:
+    today = user_local_today(goal.user)
     if goal.cadence is not None:
         period_end = advance_date_by_cadence(goal.period_start, goal.cadence.value) - datetime.timedelta(days=1)
         # A recurring goal's own end_date can fall mid-period (it isn't
@@ -271,13 +449,16 @@ def goal_progress(goal: Goal) -> dict:
     else:
         period_end = goal.end_date
     if goal.goal_type == GoalType.words:
-        current = (
-            max(0, resource_word_count(folder=goal.folder, chapter=goal.chapter) - goal.baseline_word_count)
-            if goal.baseline_word_count is not None
-            else 0
+        # Live progress for the *current* period has no upper bound -- "now"
+        # is the bound, same as period_end being in the future doesn't cap
+        # activity that hasn't happened yet. See Goal's docstring: this is
+        # gross typed-word activity by this user, not net resource growth.
+        current = resource_typed_words(
+            folder=goal.folder, chapter=goal.chapter, user_id=goal.user_id,
+            start_date=goal.period_start, end_date=min(period_end, today) if period_end else today,
         )
     else:
-        current = resource_completed_chapter_count(goal.folder, goal.period_start)
+        current = resource_completed_chapter_count(goal.folder, goal.period_start, user=goal.user)
     percent = min(100, round(current / goal.target * 100)) if goal.target > 0 else 0
     return {
         'current': current,
@@ -285,7 +466,7 @@ def goal_progress(goal: Goal) -> dict:
         'periodStart': goal.period_start.isoformat(),
         'periodEnd': period_end.isoformat() if period_end else None,
         'achieved': current >= goal.target,
-        'started': goal.goal_type != GoalType.words or goal.baseline_word_count is not None,
+        'started': goal.goal_type != GoalType.words or today >= goal.period_start,
     }
 
 
@@ -318,6 +499,8 @@ def settings_to_dict(settings: UserSettings) -> dict:
         'darkBgColor': settings.dark_bg_color,
         'darkToolbarColor': settings.dark_toolbar_color,
         'darkEditorColor': settings.dark_editor_color,
+        'showWordCount': settings.show_word_count,
+        'showAverageWpm': settings.show_average_wpm,
         'openBookIds': settings.open_book_ids,
         'closedFolderIds': settings.closed_folder_ids,
         'closedChapterIds': settings.closed_chapter_ids,
@@ -344,13 +527,7 @@ def api_login():
     if not user or not check_password_hash(user.password_hash, password):
         return error('Incorrect username or password', 401)
     login_user(user)
-    return jsonify({
-        'id': user.id,
-        'username': user.username,
-        'isAdmin': user.is_admin,
-        'csrfToken': generate_csrf(),
-        'version': VERSION,
-    })
+    return jsonify(me_to_dict(user))
 
 
 @api_bp.route('/auth/logout', methods=['POST'])
@@ -363,13 +540,7 @@ def api_logout():
 def api_me():
     if not current_user.is_authenticated:
         return error('Not authenticated', 401)
-    return jsonify({
-        'id': current_user.id,
-        'username': current_user.username,
-        'isAdmin': current_user.is_admin,
-        'csrfToken': generate_csrf(),
-        'version': VERSION,
-    })
+    return jsonify(me_to_dict(current_user))
 
 
 @api_bp.route('/me/password', methods=['PATCH'])
@@ -459,13 +630,7 @@ def api_accept_invite(token):
     db.session.commit()
 
     login_user(user)
-    return jsonify({
-        'id': user.id,
-        'username': user.username,
-        'isAdmin': user.is_admin,
-        'csrfToken': generate_csrf(),
-        'version': VERSION,
-    })
+    return jsonify(me_to_dict(user))
 
 
 @api_bp.route('/changelog')
@@ -485,24 +650,36 @@ def api_list_books():
     return jsonify([book_to_dict(b) for b in ordered_accessible_books()])
 
 
+# -------------------------------------------------- internal references --
+
+@api_bp.route('/internal-references')
+def api_internal_reference_picker():
+    """Permission-filtered, typed targets for the editor's searchable tree."""
+    return jsonify(internal_reference_picker_items())
+
+
+@api_bp.route('/internal-references/<target_type>/<uuid:target_id>')
+def api_resolve_internal_reference(target_type, target_id):
+    """Resolve a UUID to its current route without leaking private targets."""
+    resolved = internal_reference_resolution(target_type, target_id)
+    if resolved is None:
+        return error('Reference unavailable', 404)
+    return jsonify(resolved)
+
+
 # ------------------------------------------------------------- stats --
 #
-# Personal (filter by user_id) vs. resource-level (summed across every
-# collaborator) scoping matches the split already established elsewhere in
-# this app: Goal is explicitly per-user (see its docstring), while word
-# counts have no per-author attribution anywhere. Streak/heatmap/WPM/active-
-# time are personal ("when do *I* write"); trend/busiest-resource/velocity/
-# WPM-per-chapter/revision-count/word-spread are resource-level facts about
-# the writing itself.
+# Workspace behavioral stats (goals, streak, heatmap, WPM, active time,
+# typed/pasted words, trends, and busiest resource) are personal. Document
+# state such as current word/chapter/revision counts remains a resource fact.
+# Folder/chapter endpoints expose additive activity totals alongside explicit
+# per-contributor rows; WPM is never calculated across contributors.
 
 
 def goal_hit_rate_dict(user_id) -> dict:
     """Percent of a user's historical recurring-goal periods that were
-    achieved, across every goal they own. GoalPeriodHistory only records the
-    first elapsed period per lazy read (see advance_goal_period's docstring),
-    so this is not a complete calendar of every period, only the ones
-    actually observed -- and starts at zero rows for everyone until periods
-    elapse post-deploy."""
+    achieved, across every goal they own. It starts at zero rows until a
+    recurring period elapses post-deploy."""
     rows = (
         GoalPeriodHistory.query.join(Goal, GoalPeriodHistory.goal_id == Goal.id)
         .filter(Goal.user_id == user_id)
@@ -514,16 +691,17 @@ def goal_hit_rate_dict(user_id) -> dict:
     return {'achieved': achieved, 'total': total, 'percent': percent}
 
 
-def _week_bounds(offset_weeks: int) -> tuple:
+def _week_bounds(offset_weeks: int, today: datetime.date | None = None) -> tuple:
     """(start, end) dates, inclusive, of the week `offset_weeks` weeks back
     from the current one (0 = this week, 1 = last week), Monday-anchored."""
-    today = datetime.date.today()
+    today = today or user_local_today()
     this_monday = today - datetime.timedelta(days=today.weekday())
     start = this_monday - datetime.timedelta(weeks=offset_weeks)
     return start, start + datetime.timedelta(days=6)
 
 
-def week_over_week_words_dict(chapter_ids: list) -> dict:
+def week_over_week_words_dict(chapter_ids: list, user_id) -> dict:
+    """Personal typed-word comparison for the workspace stats view."""
     if not chapter_ids:
         return {'thisWeek': 0, 'lastWeek': 0, 'percentChange': None}
     this_start, this_end = _week_bounds(0)
@@ -531,9 +709,10 @@ def week_over_week_words_dict(chapter_ids: list) -> dict:
 
     def sum_words(start, end) -> int:
         return int(
-            db.session.query(db.func.coalesce(db.func.sum(ChapterWritingActivity.words_written), 0))
+            db.session.query(db.func.coalesce(db.func.sum(ChapterWritingActivity.words_typed), 0))
             .filter(
                 ChapterWritingActivity.chapter_id.in_(chapter_ids),
+                ChapterWritingActivity.user_id == user_id,
                 ChapterWritingActivity.date >= start,
                 ChapterWritingActivity.date <= end,
             )
@@ -546,9 +725,9 @@ def week_over_week_words_dict(chapter_ids: list) -> dict:
     return {'thisWeek': this_week, 'lastWeek': last_week, 'percentChange': percent_change}
 
 
-def writing_heatmap(user_id) -> list:
+def writing_heatmap(user_id, chapter_ids=None) -> list:
     """Active seconds by day-of-week and hour-of-day, personal to `user_id`."""
-    rows = (
+    query = (
         db.session.query(
             db.func.extract('dow', ChapterWritingActivity.date),
             ChapterWritingActivity.hour_of_day,
@@ -556,8 +735,13 @@ def writing_heatmap(user_id) -> list:
         )
         .filter(ChapterWritingActivity.user_id == user_id)
         .group_by(db.func.extract('dow', ChapterWritingActivity.date), ChapterWritingActivity.hour_of_day)
-        .all()
     )
+    if chapter_ids is not None:
+        chapter_ids = list(chapter_ids)
+        if not chapter_ids:
+            return []
+        query = query.filter(ChapterWritingActivity.chapter_id.in_(chapter_ids))
+    rows = query.all()
     # Postgres EXTRACT(DOW) is 0=Sunday..6=Saturday; normalize to Python's
     # date.weekday() convention (0=Monday..6=Sunday) so the frontend only
     # ever deals with one convention.
@@ -567,14 +751,17 @@ def writing_heatmap(user_id) -> list:
     ]
 
 
-def busiest_resource_dict(chapter_ids: list, days: int):
+def busiest_resource_dict(chapter_ids: list, days: int, user_id):
     if not chapter_ids:
         return None
     query = db.session.query(
         ChapterWritingActivity.chapter_id, db.func.sum(ChapterWritingActivity.active_seconds)
-    ).filter(ChapterWritingActivity.chapter_id.in_(chapter_ids))
+    ).filter(
+        ChapterWritingActivity.chapter_id.in_(chapter_ids),
+        ChapterWritingActivity.user_id == user_id,
+    )
     if days > 0:
-        cutoff = datetime.date.today() - datetime.timedelta(days=days - 1)
+        cutoff = user_local_today() - datetime.timedelta(days=days - 1)
         query = query.filter(ChapterWritingActivity.date >= cutoff)
     row = (
         query.group_by(ChapterWritingActivity.chapter_id)
@@ -590,39 +777,59 @@ def busiest_resource_dict(chapter_ids: list, days: int):
     return {'chapterId': chapter.id, 'name': chapter.name, 'activeSeconds': int(active_seconds)}
 
 
-def writing_wpm(chapter_ids: list, user_id=None) -> float:
-    if not chapter_ids:
-        return 0.0
-    query = db.session.query(
-        db.func.coalesce(db.func.sum(ChapterWritingActivity.words_written), 0),
-        db.func.coalesce(db.func.sum(ChapterWritingActivity.active_seconds), 0),
-    ).filter(ChapterWritingActivity.chapter_id.in_(chapter_ids))
-    if user_id is not None:
-        query = query.filter(ChapterWritingActivity.user_id == user_id)
-    words, seconds = query.first()
-    return round(words / (seconds / 60), 1) if seconds > 0 else 0.0
+def writing_wpm(chapter_ids: list, user_id) -> float | None:
+    """Per-user WPM. A user id is mandatory so WPM can never be blended."""
+    totals = writing_activity_totals(chapter_ids, user_id=user_id)
+    words = totals['wordsTyped']
+    seconds = totals['activeSeconds']
+    return round(words / (seconds / 60), 1) if seconds > 0 else None
 
 
-def total_active_seconds_for(chapter_ids: list, user_id=None) -> int:
-    if not chapter_ids:
-        return 0
-    query = db.session.query(db.func.coalesce(db.func.sum(ChapterWritingActivity.active_seconds), 0)).filter(
-        ChapterWritingActivity.chapter_id.in_(chapter_ids)
-    )
-    if user_id is not None:
-        query = query.filter(ChapterWritingActivity.user_id == user_id)
-    return int(query.scalar())
+def total_active_seconds_for(chapter_ids: list, user_id) -> int:
+    """Per-user active time; a user id is mandatory just as it is for WPM."""
+    return writing_activity_totals(chapter_ids, user_id=user_id)['activeSeconds']
 
 
 def words_written_in_window(chapter_ids: list, days: int) -> int:
-    if not chapter_ids:
-        return 0
-    cutoff = datetime.date.today() - datetime.timedelta(days=days - 1)
-    return int(
-        db.session.query(db.func.coalesce(db.func.sum(ChapterWritingActivity.words_written), 0))
-        .filter(ChapterWritingActivity.chapter_id.in_(chapter_ids), ChapterWritingActivity.date >= cutoff)
-        .scalar()
+    """Resource-level typed words for a chapter velocity display."""
+    cutoff = user_local_today() - datetime.timedelta(days=days - 1)
+    return writing_activity_totals(chapter_ids, start_date=cutoff)['wordsTyped']
+
+
+def personal_words_typed_and_pasted(chapter_ids: list, user_id) -> tuple[int, int]:
+    """All-time (typed, pasted) totals for `user_id` across `chapter_ids` --
+    personal, unlike words_written_in_window above. Backs the workspace
+    Stats page's "Words written"/"Words pasted" tiles."""
+    totals = writing_activity_totals(chapter_ids, user_id=user_id)
+    return totals['wordsTyped'], totals['wordsPasted']
+
+
+def resource_activity_dict(chapter_ids: list) -> dict:
+    """Combined additive totals plus separately calculated contributor rows.
+
+    The caller has already authorized access to the resource. Contributor
+    rows intentionally do not consult current shares, preserving historical
+    attribution after somebody is unshared.
+    """
+    totals = writing_activity_totals(chapter_ids)
+    contributors = writing_activity_contributions(chapter_ids)
+    for contribution in contributors:
+        contribution['isCurrentUser'] = contribution['userId'] == current_user.id
+    mine = next((row.copy() for row in contributors if row['isCurrentUser']), None)
+    if mine is None:
+        mine = {
+            'userId': current_user.id,
+            'username': current_user.username,
+            'wordsTyped': 0,
+            'wordsPasted': 0,
+            'activeSeconds': 0,
+            'wpm': None,
+            'isCurrentUser': True,
+        }
+    contributors.sort(
+        key=lambda row: (not row['isCurrentUser'], row['username'].casefold(), str(row['userId']))
     )
+    return {'totals': totals, 'mine': mine, 'contributors': contributors}
 
 
 @api_bp.route('/stats')
@@ -639,21 +846,27 @@ def api_workspace_stats():
     for chapter in chapters:
         count = len(html_to_text(chapter.content_html).split())
         total_words += count
-        day = chapter.updated_at.date().isoformat()
+        day = user_local_datetime(current_user, chapter.updated_at).date().isoformat()
         words_per_day[day] = words_per_day.get(day, 0) + count
     if days > 0:
-        cutoff = (datetime.date.today() - datetime.timedelta(days=days - 1)).isoformat()
+        cutoff = (user_local_today() - datetime.timedelta(days=days - 1)).isoformat()
         words_per_day = {d: c for d, c in words_per_day.items() if d >= cutoff}
+    words_typed, words_pasted = personal_words_typed_and_pasted(chapter_ids, current_user.id)
     return jsonify({
         'totalWords': total_words,
+        'chapterCount': len(chapters),
+        'completedChapterCount': sum(1 for chapter in chapters if chapter.completed_at is not None),
+        'revisionCount': sum(chapter.version_count for chapter in chapters),
         'wordsPerDay': prune_words_per_day(words_per_day),
-        'streak': compute_writing_streak(current_user.id),
+        'streak': compute_writing_streak(current_user.id, chapter_ids=chapter_ids),
         'goalHitRate': goal_hit_rate_dict(current_user.id),
-        'weekOverWeekWords': week_over_week_words_dict(chapter_ids),
-        'heatmap': writing_heatmap(current_user.id),
-        'busiestResource': busiest_resource_dict(chapter_ids, days),
+        'weekOverWeekWords': week_over_week_words_dict(chapter_ids, current_user.id),
+        'heatmap': writing_heatmap(current_user.id, chapter_ids),
+        'busiestResource': busiest_resource_dict(chapter_ids, days, current_user.id),
         'avgWpm': writing_wpm(chapter_ids, user_id=current_user.id),
         'totalActiveSeconds': total_active_seconds_for(chapter_ids, user_id=current_user.id),
+        'wordsTyped': words_typed,
+        'wordsPasted': words_pasted,
     })
 
 
@@ -918,9 +1131,10 @@ def api_get_folder(folder_id):
     folder = require_folder_access(folder_id, 'viewer')
     subfolders = Folder.query.filter_by(parent_id=folder.id).order_by(Folder.position, Folder.created_at).all()
     chapters = Chapter.query.filter_by(folder_id=folder.id).order_by(Chapter.position, Chapter.created_at).all()
+    with_children = chapter_ids_with_children([c.id for c in chapters])
     d = folder_to_dict(folder)
     d['folders'] = [folder_to_dict(f) for f in subfolders]
-    d['chapters'] = [chapter_summary_dict(c) for c in chapters]
+    d['chapters'] = [chapter_summary_dict(c, has_children=c.id in with_children) for c in chapters]
     return jsonify(d)
 
 
@@ -931,10 +1145,7 @@ def api_folder_tree_ids(folder_id):
     subtree from the sidebar in one action."""
     folder = require_folder_access(folder_id, 'viewer')
     folder_ids = [fid for fid in descendant_folder_ids(folder.id) if fid != folder.id]
-    chapter_ids = [
-        c.id
-        for c in Chapter.query.filter(Chapter.folder_id.in_(descendant_folder_ids(folder.id))).with_entities(Chapter.id).all()
-    ]
+    chapter_ids = chapter_ids_under_folder(folder.id)
     return jsonify({'folderIds': folder_ids, 'chapterIds': chapter_ids})
 
 
@@ -948,6 +1159,15 @@ def api_folder_tree(folder_id):
     folder = require_folder_access(folder_id, 'viewer')
     entries = []
 
+    def walk_chapter_children(parent_chapter_id, depth):
+        children = (
+            Chapter.query.filter_by(parent_chapter_id=parent_chapter_id)
+            .order_by(Chapter.position, Chapter.created_at).all()
+        )
+        for c in children:
+            entries.append({'id': c.id, 'type': 'chapter', 'name': c.name, 'depth': depth})
+            walk_chapter_children(c.id, depth + 1)
+
     def walk(parent_id, depth):
         subfolders = Folder.query.filter_by(parent_id=parent_id).order_by(Folder.position, Folder.created_at).all()
         for f in subfolders:
@@ -956,6 +1176,7 @@ def api_folder_tree(folder_id):
         chapters = Chapter.query.filter_by(folder_id=parent_id).order_by(Chapter.position, Chapter.created_at).all()
         for c in chapters:
             entries.append({'id': c.id, 'type': 'chapter', 'name': c.name, 'depth': depth})
+            walk_chapter_children(c.id, depth + 1)
 
     walk(folder.id, 0)
     return jsonify(entries)
@@ -965,8 +1186,8 @@ def api_folder_tree(folder_id):
 def api_folder_stats(folder_id):
     folder = require_folder_access(folder_id, 'viewer')
     days = int(request.args.get('days', 7))
-    folder_ids = descendant_folder_ids(folder.id)
-    chapters = Chapter.query.filter(Chapter.folder_id.in_(folder_ids)).all()
+    chapter_ids = chapter_ids_under_folder(folder.id)
+    chapters = Chapter.query.filter(Chapter.id.in_(chapter_ids)).all()
     total_words = 0
     words_per_day = {}
     word_counts = {}
@@ -974,10 +1195,10 @@ def api_folder_stats(folder_id):
         count = len(html_to_text(chapter.content_html).split())
         word_counts[chapter.id] = count
         total_words += count
-        day = chapter.updated_at.date().isoformat()
+        day = user_local_datetime(current_user, chapter.updated_at).date().isoformat()
         words_per_day[day] = words_per_day.get(day, 0) + count
     if days > 0:
-        cutoff = (datetime.date.today() - datetime.timedelta(days=days - 1)).isoformat()
+        cutoff = (user_local_today() - datetime.timedelta(days=days - 1)).isoformat()
         words_per_day = {d: c for d, c in words_per_day.items() if d >= cutoff}
 
     # "Spread within a sub-folder" reads as sibling comparison -- direct
@@ -988,17 +1209,18 @@ def api_folder_stats(folder_id):
         if direct_counts else None
     )
 
-    stale_cutoff = datetime.date.today() - datetime.timedelta(days=STALE_CHAPTER_DAYS)
+    today = user_local_today()
+    stale_cutoff = today - datetime.timedelta(days=STALE_CHAPTER_DAYS)
     stale_chapters = []
     for chapter in chapters:
         if chapter.completed_at is not None:
             continue
-        last_activity = chapter_last_activity_date(chapter)
+        last_activity = chapter_last_activity_date(chapter, current_user)
         if last_activity is not None and last_activity <= stale_cutoff:
             stale_chapters.append({
                 'id': chapter.id,
                 'name': chapter.name,
-                'daysSinceActivity': (datetime.date.today() - last_activity).days,
+                'daysSinceActivity': (today - last_activity).days,
             })
     stale_chapters.sort(key=lambda c: -c['daysSinceActivity'])
 
@@ -1009,13 +1231,16 @@ def api_folder_stats(folder_id):
             'versionCount': chapter.version_count,
             'recentVelocity7d': words_written_in_window([chapter.id], 7),
             'recentVelocity30d': words_written_in_window([chapter.id], 30),
-            'wpm': writing_wpm([chapter.id]),
+            'wpm': writing_wpm([chapter.id], current_user.id),
         }
         for chapter in chapters
     ]
-
     return jsonify({
         'totalWords': total_words,
+        'chapterCount': len(chapters),
+        'completedChapterCount': sum(1 for chapter in chapters if chapter.completed_at is not None),
+        'revisionCount': sum(chapter.version_count for chapter in chapters),
+        'activity': resource_activity_dict(chapter_ids),
         'wordsPerDay': prune_words_per_day(words_per_day),
         'staleChapters': stale_chapters,
         'wordCountSpread': word_count_spread,
@@ -1031,6 +1256,7 @@ def api_create_folder():
     if not parent_id or not name:
         return error('parentId and name are required')
     parent = require_folder_access(parent_id, 'editor')
+    validate_folder_parent(None, parent)
     if Folder.query.filter_by(parent_id=parent.id, name=name).first():
         return error('Name already exists', 409)
     folder = Folder(
@@ -1062,6 +1288,18 @@ def api_update_folder(folder_id):
         folder.author = data['author']
     if 'showBookColor' in data:
         folder.show_book_color = bool(data['showBookColor'])
+    if 'parentId' in data:
+        new_parent_id = parse_uuid(data['parentId'])
+        if new_parent_id is None:
+            return error('parentId must be a valid id')
+        new_parent = require_folder_access(new_parent_id, 'editor')
+        if new_parent.id != folder.parent_id:
+            lock_books_for_hierarchy_change(folder.book_id)
+            validate_folder_parent(folder.id, new_parent)
+            if Folder.query.filter_by(parent_id=new_parent.id, name=folder.name).first():
+                return error('Name already exists in destination', 409)
+            folder.parent_id = new_parent.id
+            folder.position = next_folder_position(new_parent.id)
     db.session.commit()
     return jsonify(folder_to_dict(folder))
 
@@ -1141,6 +1379,28 @@ def api_reorder_folder(folder_id):
     return ('', 204)
 
 
+@api_bp.route('/chapters/<uuid:chapter_id>/reorder', methods=['POST'])
+def api_reorder_chapter_children(chapter_id):
+    """Mirrors api_reorder_folder above, scoped to a parent chapter's own
+    child chapters instead of a folder's -- needed now that a chapter can
+    have its own ordered child-chapter list. Sibling reorder only, same as
+    api_reorder_folder: never changes parentage."""
+    chapter = require_chapter_access(chapter_id, 'editor')
+    data = request.get_json(silent=True) or {}
+    ids_order = [i for i in (parse_uuid(raw) for raw in data.get('order', [])) if i is not None]
+    children = Chapter.query.filter_by(parent_chapter_id=chapter.id).all()
+    by_id = {c.id: c for c in children}
+    for idx, cid in enumerate(ids_order):
+        obj = by_id.pop(cid, None)
+        if obj is not None:
+            obj.position = idx
+    remaining = sorted(by_id.values(), key=lambda c: c.position)
+    for i, obj in enumerate(remaining, start=len(ids_order)):
+        obj.position = i
+    db.session.commit()
+    return ('', 204)
+
+
 # ------------------------------------------------------------ chapters --
 
 @api_bp.route('/chapters', methods=['POST'])
@@ -1148,18 +1408,34 @@ def api_create_chapter():
     data = request.get_json(silent=True) or {}
     name = clean_name(data.get('name', ''))
     folder_id = parse_uuid(data.get('folderId'))
-    if not folder_id or not name:
-        return error('folderId and name are required')
-    folder = require_folder_access(folder_id, 'editor')
-    if Chapter.query.filter_by(folder_id=folder.id, name=name).first():
-        return error('Name already exists', 409)
-    chapter = Chapter(
-        folder_id=folder.id,
-        book_id=folder.book_id,
-        name=name,
-        description=data.get('description', ''),
-        position=next_chapter_position(folder.id),
-    )
+    parent_chapter_id = parse_uuid(data.get('parentChapterId'))
+    if not name or (folder_id is None) == (parent_chapter_id is None):
+        return error('Exactly one of folderId/parentChapterId, plus name, are required')
+
+    if folder_id is not None:
+        folder = require_folder_access(folder_id, 'editor')
+        parent_chapter = None
+    else:
+        parent_chapter = require_chapter_access(parent_chapter_id, 'editor')
+        folder = None
+
+    validate_chapter_parent(None, new_folder=folder, new_parent_chapter=parent_chapter)
+
+    if folder is not None:
+        if Chapter.query.filter_by(folder_id=folder.id, name=name).first():
+            return error('Name already exists', 409)
+        chapter = Chapter(
+            folder_id=folder.id, book_id=folder.book_id, name=name,
+            description=data.get('description', ''), position=next_chapter_position(folder_id=folder.id),
+        )
+    else:
+        if Chapter.query.filter_by(parent_chapter_id=parent_chapter.id, name=name).first():
+            return error('Name already exists', 409)
+        chapter = Chapter(
+            parent_chapter_id=parent_chapter.id, book_id=parent_chapter.book_id, name=name,
+            description=data.get('description', ''),
+            position=next_chapter_position(parent_chapter_id=parent_chapter.id),
+        )
     db.session.add(chapter)
     db.session.commit()
     return jsonify(chapter_detail_dict(chapter)), 201
@@ -1169,6 +1445,20 @@ def api_create_chapter():
 def api_get_chapter(chapter_id):
     chapter = require_chapter_access(chapter_id, 'viewer')
     return jsonify(chapter_detail_dict(chapter))
+
+
+@api_bp.route('/chapters/<uuid:chapter_id>/tree-children')
+def api_chapter_tree_children(chapter_id):
+    """A chapter's own direct child chapters, for the sidebar tree -- same
+    shape/purpose as GET /folders/<id>'s `.chapters`, kept as a separate
+    lightweight endpoint so expanding a tree node doesn't pull contentHtml/
+    notesText along with it."""
+    chapter = require_chapter_access(chapter_id, 'viewer')
+    children = (
+        Chapter.query.filter_by(parent_chapter_id=chapter.id).order_by(Chapter.position, Chapter.created_at).all()
+    )
+    with_children = chapter_ids_with_children([c.id for c in children])
+    return jsonify({'chapters': [chapter_summary_dict(c, has_children=c.id in with_children) for c in children]})
 
 
 @api_bp.route('/chapters/<uuid:chapter_id>', methods=['PATCH'])
@@ -1181,22 +1471,54 @@ def api_update_chapter(chapter_id):
         new_name = clean_name(data['name'])
         if not new_name:
             return error('name cannot be empty')
-        if new_name != chapter.name and Chapter.query.filter_by(folder_id=chapter.folder_id, name=new_name).first():
+        # Scoped to whichever immediate parent this chapter actually has --
+        # a nested chapter's folder_id is NULL, so filtering on it directly
+        # would compare against every other NULL-folder_id chapter in the
+        # app instead of this chapter's own siblings.
+        sibling_filter = (
+            {'folder_id': chapter.folder_id} if chapter.folder_id is not None
+            else {'parent_chapter_id': chapter.parent_chapter_id}
+        )
+        if new_name != chapter.name and Chapter.query.filter_by(name=new_name, **sibling_filter).first():
             return error('Name already exists', 409)
         chapter.name = new_name
     if 'description' in data:
         chapter.description = data['description']
-    if 'folderId' in data:
-        new_folder_id = parse_uuid(data['folderId'])
-        if new_folder_id is None:
-            return error('folderId must be a valid id')
-        new_folder = require_folder_access(new_folder_id, 'editor')
-        if new_folder.id != chapter.folder_id:
-            if Chapter.query.filter_by(folder_id=new_folder.id, name=chapter.name).first():
-                return error('Name already exists in destination folder', 409)
-            chapter.folder_id = new_folder.id
-            chapter.book_id = new_folder.book_id
-            chapter.position = next_chapter_position(new_folder.id)
+    if 'folderId' in data and 'parentChapterId' in data:
+        return error('Set at most one of folderId/parentChapterId')
+    if 'folderId' in data or 'parentChapterId' in data:
+        new_folder_id = parse_uuid(data['folderId']) if 'folderId' in data else None
+        new_parent_chapter_id = parse_uuid(data['parentChapterId']) if 'parentChapterId' in data else None
+        if ('folderId' in data and new_folder_id is None) or ('parentChapterId' in data and new_parent_chapter_id is None):
+            return error('folderId/parentChapterId must be a valid id')
+        new_folder = require_folder_access(new_folder_id, 'editor') if new_folder_id is not None else None
+        new_parent_chapter = (
+            require_chapter_access(new_parent_chapter_id, 'editor') if new_parent_chapter_id is not None else None
+        )
+        new_book_id = new_folder.book_id if new_folder is not None else new_parent_chapter.book_id
+        if new_folder_id != chapter.folder_id or new_parent_chapter_id != chapter.parent_chapter_id:
+            lock_books_for_hierarchy_change(chapter.book_id, new_book_id)
+            validate_chapter_parent(chapter.id, new_folder=new_folder, new_parent_chapter=new_parent_chapter)
+            sibling_filter = (
+                {'folder_id': new_folder.id} if new_folder is not None else {'parent_chapter_id': new_parent_chapter.id}
+            )
+            if Chapter.query.filter_by(name=chapter.name, **sibling_filter).first():
+                return error('Name already exists in destination', 409)
+            chapter.folder_id = new_folder.id if new_folder is not None else None
+            chapter.parent_chapter_id = new_parent_chapter.id if new_parent_chapter is not None else None
+            chapter.position = next_chapter_position(
+                folder_id=(new_folder.id if new_folder is not None else None),
+                parent_chapter_id=(new_parent_chapter.id if new_parent_chapter is not None else None),
+            )
+            if new_book_id != chapter.book_id:
+                # Cross-book chapter moves are allowed (existing behavior) --
+                # cascade book_id onto the entire moved subtree, not just
+                # this row, in the same transaction as the reparent.
+                subtree_ids = descendant_chapter_ids(chapter.id)
+                Chapter.query.filter(Chapter.id.in_(subtree_ids)).update(
+                    {'book_id': new_book_id}, synchronize_session=False
+                )
+                chapter.book_id = new_book_id
     if 'contentHtml' in data:
         new_content = sanitize_html(data['contentHtml'])
         if new_content != chapter.content_html:
@@ -1219,6 +1541,8 @@ def api_update_chapter(chapter_id):
 @api_bp.route('/chapters/<uuid:chapter_id>', methods=['DELETE'])
 def api_delete_chapter(chapter_id):
     chapter = require_chapter_access(chapter_id, 'editor')
+    if Chapter.query.filter_by(parent_chapter_id=chapter.id).first() is not None:
+        return error("Can't delete this chapter while it contains sub-chapters. Move or delete its sub-chapters first.")
     db.session.delete(chapter)
     db.session.commit()
     return ('', 204)
@@ -1308,17 +1632,18 @@ def api_chapter_stats(chapter_id):
     words_per_day = {}
     versions = ChapterVersion.query.filter_by(chapter_id=chapter.id).order_by(ChapterVersion.created_at).all()
     for version in versions:
-        day = version.created_at.date().isoformat()
+        day = user_local_datetime(current_user, version.created_at).date().isoformat()
         words_per_day[day] = len(html_to_text(version.content_html).split())
     total_words = len(html_to_text(chapter.content_html).split())
-    words_per_day[datetime.date.today().isoformat()] = total_words
+    today = user_local_today()
+    words_per_day[today.isoformat()] = total_words
     if days > 0:
-        cutoff = (datetime.date.today() - datetime.timedelta(days=days - 1)).isoformat()
+        cutoff = (today - datetime.timedelta(days=days - 1)).isoformat()
         words_per_day = {d: c for d, c in words_per_day.items() if d >= cutoff}
     return jsonify({
         'totalWords': total_words,
         'wordsPerDay': prune_words_per_day(words_per_day),
-        'wpm': writing_wpm([chapter.id]),
+        'activity': resource_activity_dict([chapter.id]),
     })
 
 
@@ -1327,38 +1652,105 @@ PRESENCE_RECENT_WINDOW = datetime.timedelta(seconds=30)
 
 @api_bp.route('/chapters/<uuid:chapter_id>/presence', methods=['POST'])
 def api_heartbeat_chapter_presence(chapter_id):
-    """Also the carrier for active-writing-time tracking: the client reports
-    its live word count and whether any edit happened since the last
-    heartbeat. An interval only accumulates into ChapterWritingActivity when
-    `typed` is true -- open-but-idle/reading time is never counted, which is
-    what makes WPM/active-time stats exclude downtime."""
+    """Also the carrier for input-source-aware writing-activity tracking.
+    `wordCount` is the chapter's live total, diffed against the
+    last-recorded `last_word_count` the same way it always has been.
+    `typedWordsTotal`/`pastedWordsTotal` are cumulative *since the editor
+    mounted* (never reset by the client mid-session -- see
+    ChapterPage.tsx), diffed the identical way against
+    `last_typed_words`/`last_pasted_words`. This makes the transport
+    self-healing: a dropped heartbeat's words aren't lost (the next
+    successful heartbeat's larger cumulative total catches the server up),
+    and a duplicated heartbeat can't double-credit (the same cumulative
+    value diffs to zero the second time). A page reload resets the client's
+    counters to 0, which briefly diffs negative against a nonzero
+    last_recorded value -- clamped to 0 (no phantom credit) and
+    self-corrects on the very next heartbeat, since last_recorded is always
+    unconditionally overwritten with the current total regardless of
+    direction.
+
+    `hadTypingInput` -- true only for genuine keyboard/composition input
+    this interval, false for paste/drop/undo/redo/formatting/programmatic
+    (see ChapterEditor.tsx's classifier) -- is what gates active_seconds.
+    This is deliberately NOT "typedWordsTotal or pastedWordsTotal changed":
+    a paste-only interval must still credit pastedWords (for the stat) but
+    must NOT grow active_seconds, or WPM's denominator would be inflated by
+    time spent pasting rather than typing.
+
+    Presence creation is an INSERT .. ON CONFLICT DO NOTHING followed by a
+    SELECT .. FOR UPDATE. That one-row lock serializes both first-heartbeat
+    races and subsequent counter accounting; duplicate or overlapping
+    requests can therefore neither violate the unique constraint nor credit
+    the same cumulative delta twice."""
     chapter = require_chapter_access(chapter_id, 'viewer')
     data = request.get_json(silent=True) or {}
     raw_word_count = data.get('wordCount')
     word_count = (
         int(raw_word_count) if isinstance(raw_word_count, (int, float)) and not isinstance(raw_word_count, bool) else None
     )
-    typed = bool(data.get('typed'))
+
+    def as_nonneg_int(value) -> int:
+        return max(0, int(value)) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
+
+    typed_words_total = as_nonneg_int(data.get('typedWordsTotal'))
+    pasted_words_total = as_nonneg_int(data.get('pastedWordsTotal'))
+    had_typing_input = bool(data.get('hadTypingInput'))
+
+    # The unique (chapter_id, user_id) identity is the concurrency boundary.
+    # ON CONFLICT makes simultaneous first heartbeats safe; FOR UPDATE then
+    # serializes all counter reads, activity credit, and counter advancement
+    # for an existing row. record_writing_activity uses this same session and
+    # never commits, so both records succeed or fail together at the one
+    # commit below.
+    insert_result = db.session.execute(
+        pg_insert(ChapterPresence)
+        .values(
+            chapter_id=chapter_id,
+            user_id=current_user.id,
+            last_word_count=word_count,
+            last_typed_words=typed_words_total,
+            last_pasted_words=pasted_words_total,
+        )
+        .on_conflict_do_nothing(
+            index_elements=[ChapterPresence.chapter_id, ChapterPresence.user_id]
+        )
+    )
+    inserted = insert_result.rowcount == 1
+    row = db.session.execute(
+        db.select(ChapterPresence)
+        .where(
+            ChapterPresence.chapter_id == chapter_id,
+            ChapterPresence.user_id == current_user.id,
+        )
+        .with_for_update()
+    ).scalar_one()
 
     now = datetime.datetime.now(datetime.timezone.utc)
-    row = ChapterPresence.query.filter_by(chapter_id=chapter_id, user_id=current_user.id).first()
-    if row is None:
-        row = ChapterPresence(chapter_id=chapter_id, user_id=current_user.id, last_word_count=word_count)
-        db.session.add(row)
-    else:
-        if typed and word_count is not None:
+    if word_count is not None:
+        # A newly inserted row establishes the cumulative baseline; it has
+        # no previous interval to credit. Every later request reaches this
+        # calculation only while holding the row lock.
+        if not inserted:
             last_seen = row.last_seen
             if last_seen.tzinfo is None:
                 last_seen = last_seen.replace(tzinfo=datetime.timezone.utc)
             elapsed = min((now - last_seen).total_seconds(), MAX_HEARTBEAT_ELAPSED.total_seconds())
-            baseline = row.last_word_count if row.last_word_count is not None else word_count
-            words_delta = max(0, word_count - baseline)
-            record_writing_activity(chapter, current_user.id, elapsed, words_delta)
-        row.last_seen = now
-        if word_count is not None:
-            row.last_word_count = word_count
+            typed_delta = max(0, typed_words_total - row.last_typed_words)
+            pasted_delta = max(0, pasted_words_total - row.last_pasted_words)
+            # Active seconds gate on genuine typing input alone -- a
+            # paste-only interval still credits pasted_delta, just with 0
+            # elapsed, so it can never inflate WPM's active-time denominator.
+            elapsed_for_activity = elapsed if had_typing_input else 0
+            if had_typing_input or typed_delta > 0 or pasted_delta > 0:
+                record_writing_activity(
+                    chapter, current_user.id, elapsed_for_activity, typed_delta, pasted_delta
+                )
+        row.last_word_count = word_count
+        row.last_typed_words = typed_words_total
+        row.last_pasted_words = pasted_words_total
+    row.last_seen = now
     db.session.commit()
-    return ('', 204)
+    return jsonify({'averageWpm': writing_wpm([chapter.id], current_user.id)})
 
 
 @api_bp.route('/chapters/<uuid:chapter_id>/presence')
@@ -1405,7 +1797,7 @@ def api_create_goal():
     if goal_type not in ('words', 'chapters'):
         return error('goalType must be "words" or "chapters"')
     if goal_type == 'chapters' and resource_type != 'folder':
-        return error('Chapter-count goals can only be set on a book or sub-folder')
+        return error('Chapter-count goals can only be set on a book or folder')
     if not isinstance(target, int) or isinstance(target, bool) or target <= 0:
         return error('target must be a positive integer')
 
@@ -1417,7 +1809,7 @@ def api_create_goal():
         folder_id, chapter_id = None, chapter.id
 
     try:
-        start_date = datetime.date.fromisoformat(start_date_raw) if start_date_raw else datetime.date.today()
+        start_date = datetime.date.fromisoformat(start_date_raw) if start_date_raw else user_local_today()
     except (TypeError, ValueError):
         return error('startDate must be an ISO date')
 
@@ -1502,13 +1894,12 @@ def api_update_goal(goal_id):
         if effective_end is not None and effective_end < effective_start:
             return error('endDate must be on or after startDate')
         if new_start_date is not None:
-            # Moving the anchor date invalidates any baseline captured
-            # against the old one -- re-anchor the current period here and
-            # let advance_goal_period() lazily recapture it below (or roll
-            # straight past it, if the new date is already in the past).
+            # Re-anchor the current period here; advance_goal_period() below
+            # will roll it straight past if the new date is already in the
+            # past. Progress is a live date-range sum, so there's no
+            # baseline to invalidate/recapture.
             goal.start_date = new_start_date
             goal.period_start = new_start_date
-            goal.baseline_word_count = None
         if end_date_provided:
             goal.end_date = new_end_date
 
@@ -1557,6 +1948,19 @@ def api_goal_history(goal_id):
 
 # ----------------------------------------------------------------- me --
 
+@api_bp.route('/me/timezone', methods=['PATCH'])
+def api_update_timezone():
+    data = request.get_json(silent=True) or {}
+    timezone_name = data.get('timezone')
+    if not is_valid_timezone(timezone_name):
+        return error('timezone must be a valid IANA timezone')
+    # Browser auto-detection is a write-once default. An explicit Settings
+    # change omits this flag and remains reversible at any time.
+    if not data.get('onlyIfUnset') or current_user.timezone is None:
+        current_user.timezone = timezone_name
+        db.session.commit()
+    return jsonify(me_to_dict(current_user))
+
 @api_bp.route('/me/settings')
 def api_get_settings():
     return jsonify(settings_to_dict(get_user_settings()))
@@ -1578,6 +1982,8 @@ def api_update_settings():
         'darkBgColor': 'dark_bg_color',
         'darkToolbarColor': 'dark_toolbar_color',
         'darkEditorColor': 'dark_editor_color',
+        'showWordCount': 'show_word_count',
+        'showAverageWpm': 'show_average_wpm',
         'openBookIds': 'open_book_ids',
         'closedFolderIds': 'closed_folder_ids',
         'closedChapterIds': 'closed_chapter_ids',
@@ -1603,7 +2009,14 @@ def api_update_settings():
             if goal_uuid is None or not Goal.query.filter_by(id=goal_uuid, user_id=current_user.id).first():
                 return error('No such goal')
             value = goal_uuid
+        if api_key in {'showWordCount', 'showAverageWpm'} and not isinstance(value, bool):
+            return error(f'{api_key} must be a boolean')
         setattr(settings, attr, value)
+    # WPM is a supporting detail of the word-count footer. Hiding word count
+    # always turns WPM off too; re-enabling word count does not silently
+    # re-enable WPM, so the two preferences remain predictable.
+    if not settings.show_word_count:
+        settings.show_average_wpm = False
     db.session.commit()
     return jsonify(settings_to_dict(settings))
 
@@ -1617,16 +2030,19 @@ def api_search():
     if query:
         book_ids = accessible_book_ids()
         shared_folders, shared_chapters = shared_items()
-        folder_ids = set()
+        # Expand each shared folder/chapter into its full descendant chapter
+        # set -- a chapter nested under another chapter has folder_id NULL,
+        # so a bare Chapter.folder_id.in_(...)/Chapter.id.in_(shared ids)
+        # filter would silently miss it either way a share reaches it.
+        chapter_ids = set()
         for f in shared_folders:
-            folder_ids.update(descendant_folder_ids(f.id))
-        chapter_ids = {c.id for c in shared_chapters}
+            chapter_ids.update(chapter_ids_under_folder(f.id))
+        for c in shared_chapters:
+            chapter_ids.update(descendant_chapter_ids(c.id))
 
         conditions = []
         if book_ids:
             conditions.append(Chapter.book_id.in_(book_ids))
-        if folder_ids:
-            conditions.append(Chapter.folder_id.in_(folder_ids))
         if chapter_ids:
             conditions.append(Chapter.id.in_(chapter_ids))
 

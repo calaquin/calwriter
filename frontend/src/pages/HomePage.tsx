@@ -126,7 +126,7 @@ export default function HomePage() {
         <div className="home-section-header">
           <div>
             <h2>Backup and restore</h2>
-            <p>Keep a portable copy of your CalWriter library.</p>
+            <p>Keep a portable copy of your Books, hierarchy, prose, notes, and document metadata.</p>
           </div>
         </div>
         {importError && (
@@ -138,7 +138,10 @@ export default function HomePage() {
           <div className="database-tool">
             <div>
               <h3>Export library</h3>
-              <p>Download all of your books as a <code>.calwdb</code> backup.</p>
+              <p>
+                Download your visible Books as a <code>.calwdb</code> archive. Accounts, sharing, goals,
+                version history, and writing stats are not included.
+              </p>
             </div>
             <button type="button" onClick={() => exportDb.mutate()} disabled={exportDb.isPending}>
               {exportDb.isPending ? 'Exporting…' : 'Export backup'}
@@ -147,7 +150,7 @@ export default function HomePage() {
           <div className="database-tool">
             <div>
               <h3>Import library</h3>
-              <p>Restore books from an existing <code>.calwdb</code> file.</p>
+              <p>Restore portable Book content from an existing <code>.calwdb</code> archive.</p>
             </div>
             <input type="file" accept=".calwdb" ref={fileInputRef} onChange={handleImportFile} />
             <button type="button" onClick={() => fileInputRef.current?.click()} disabled={importDb.isPending}>

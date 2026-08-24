@@ -5,9 +5,9 @@ import {
   useFolderTreeIds,
   useReorderFolderChildren,
   useMoveChapter,
+  useMoveFolder,
   useUpdateFolder,
   useUpdateBook,
-  useRenameChapter,
   useCreateFolder,
   useCreateChapter,
   useSettings,
@@ -19,24 +19,15 @@ import { triggerDownload } from '../api/client'
 import TreeItemMenu, { type MenuAction } from './TreeItemMenu'
 import CreateItemModal from './CreateItemModal'
 import RenameModal from './RenameModal'
+import ChapterTreeNode from './ChapterTreeNode'
+import {
+  CHAPTER_DRAG_TYPE,
+  FOLDER_DRAG_TYPE,
+  readChapterDragPayload,
+  readFolderDragPayload,
+  rowDropZone,
+} from './chapterDrag'
 import type { Role } from '../api/types'
-
-const CHAPTER_DRAG_TYPE = 'application/x-calwriter-chapter'
-
-interface ChapterDragPayload {
-  chapterId: string
-  sourceFolderId: string
-}
-
-function readChapterDragPayload(e: DragEvent): ChapterDragPayload | null {
-  const raw = e.dataTransfer.getData(CHAPTER_DRAG_TYPE)
-  if (!raw) return null
-  try {
-    return JSON.parse(raw) as ChapterDragPayload
-  } catch {
-    return null
-  }
-}
 
 export default function FolderTreeNode({
   folderId,
@@ -70,7 +61,6 @@ export default function FolderTreeNode({
   const [expanded, setExpanded] = useState(level === 0)
   const [creating, setCreating] = useState<'folder' | 'chapter' | null>(null)
   const [renamingFolder, setRenamingFolder] = useState(false)
-  const [renamingChapter, setRenamingChapter] = useState<{ id: string; name: string } | null>(null)
   const { data } = useFolder(expanded ? folderId : undefined)
   const { data: treeIds } = useFolderTreeIds(folderId)
   const hasChildren = data ? data.folders.length > 0 || data.chapters.length > 0 : true
@@ -79,15 +69,15 @@ export default function FolderTreeNode({
 
   const reorder = useReorderFolderChildren(folderId)
   const moveChapter = useMoveChapter()
+  const moveFolder = useMoveFolder()
   const updateFolder = useUpdateFolder(folderId, parentId)
   const updateBook = useUpdateBook(folderId)
-  const renameChapterMutation = useRenameChapter(folderId)
   const createFolderMutation = useCreateFolder(folderId)
   const createChapterMutation = useCreateChapter(folderId)
   const { data: settings } = useSettings()
   const updateSettings = useUpdateSettings()
   const openAll = useOpenAll()
-  const { closeTab, closeTabsForBook } = useTabs()
+  const { closeTabsForBook } = useTabs()
 
   function handleRenameFolder(nextName: string) {
     if (isBook) {
@@ -131,37 +121,15 @@ export default function FolderTreeNode({
     })
   }
 
-  function handleRenameChapter(nextName: string) {
-    if (!renamingChapter) return
-    renameChapterMutation.mutate(
-      { chapterId: renamingChapter.id, name: nextName },
-      { onSuccess: () => setRenamingChapter(null) },
-    )
-  }
-
-  function toggleChapterOpen(chapterId: string) {
-    const current = settings?.closedChapterIds ?? []
-    const isClosed = current.includes(chapterId)
-    updateSettings.mutate({
-      closedChapterIds: isClosed ? current.filter((id) => id !== chapterId) : [...current, chapterId],
-    })
-    if (!isClosed) closeTab(chapterId)
-  }
-
   function downloadFolder(ext: string) {
     triggerDownload(`/folders/${folderId}/export.${ext}`)
   }
 
-  function downloadChapter(chapterId: string, ext: string) {
-    triggerDownload(`/chapters/${chapterId}/export.${ext}`)
-  }
-
-  const [folderDragOver, setFolderDragOver] = useState(false)
-  const [chapterDragOver, setChapterDragOver] = useState<{ id: string; before: boolean } | null>(null)
+  const [folderDragOver, setFolderDragOver] = useState<'nest' | null>(null)
+  const [chapterDragOver, setChapterDragOver] = useState<{ id: string; zone: 'before' | 'nest' | 'after' } | null>(null)
 
   function handleChapterDragStart(chapterId: string, e: DragEvent) {
-    const payload: ChapterDragPayload = { chapterId, sourceFolderId: folderId }
-    e.dataTransfer.setData(CHAPTER_DRAG_TYPE, JSON.stringify(payload))
+    e.dataTransfer.setData(CHAPTER_DRAG_TYPE, JSON.stringify({ chapterId }))
     e.dataTransfer.effectAllowed = 'move'
   }
 
@@ -170,34 +138,29 @@ export default function FolderTreeNode({
     e.preventDefault()
     e.stopPropagation()
     e.dataTransfer.dropEffect = 'move'
-    const rect = e.currentTarget.getBoundingClientRect()
-    const before = e.clientY < rect.top + rect.height / 2
-    setChapterDragOver((prev) => (prev?.id === chapterId && prev.before === before ? prev : { id: chapterId, before }))
+    const zone = rowDropZone(e)
+    setChapterDragOver((prev) => (prev?.id === chapterId && prev.zone === zone ? prev : { id: chapterId, zone }))
   }
 
-  function handleChapterDrop(targetChapterId: string, e: DragEvent) {
-    e.preventDefault()
-    e.stopPropagation()
-    const dropBefore = chapterDragOver?.id === targetChapterId ? chapterDragOver.before : true
-    setChapterDragOver(null)
-    setFolderDragOver(false)
-    if (!canEdit || !data) return
-    const payload = readChapterDragPayload(e)
-    if (!payload) return
-    const { chapterId, sourceFolderId } = payload
-    if (sourceFolderId === folderId && chapterId === targetChapterId) return
-
-    const currentIds = data.chapters.map((c) => c.id).filter((id) => id !== chapterId)
+  // "nest" is handled entirely inside ChapterTreeNode itself (dropping a
+  // chapter directly onto another chapter's own row = become its child, no
+  // sibling-list knowledge needed) -- this only ever sees 'before'/'after',
+  // reordering (or moving in as a new sibling) among this folder's own
+  // direct chapters.
+  function handleChapterSiblingDrop(targetChapterId: string, draggedChapterId: string, before: boolean) {
+    if (!data) return
+    if (draggedChapterId === targetChapterId) return
+    const currentIds = data.chapters.map((c) => c.id).filter((id) => id !== draggedChapterId)
     const targetIndex = currentIds.indexOf(targetChapterId)
-    const insertAt = targetIndex === -1 ? currentIds.length : dropBefore ? targetIndex : targetIndex + 1
+    const insertAt = targetIndex === -1 ? currentIds.length : before ? targetIndex : targetIndex + 1
     const newOrder = [...currentIds]
-    newOrder.splice(insertAt, 0, chapterId)
-
-    if (sourceFolderId === folderId) {
+    newOrder.splice(insertAt, 0, draggedChapterId)
+    const alreadyHere = data.chapters.some((c) => c.id === draggedChapterId)
+    if (alreadyHere) {
       reorder.mutate({ type: 'chapter', order: newOrder })
     } else {
       moveChapter.mutate(
-        { chapterId, sourceFolderId, folderId },
+        { chapterId: draggedChapterId, folderId },
         { onSuccess: () => reorder.mutate({ type: 'chapter', order: newOrder }) },
       )
     }
@@ -207,24 +170,38 @@ export default function FolderTreeNode({
     if (!canEdit) return
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
-    setFolderDragOver(true)
+    setFolderDragOver('nest')
   }
 
   function handleFolderRowDrop(e: DragEvent) {
     e.preventDefault()
-    setFolderDragOver(false)
+    setFolderDragOver(null)
     if (!canEdit) return
-    const payload = readChapterDragPayload(e)
-    if (!payload || payload.sourceFolderId === folderId) return
-    moveChapter.mutate({ chapterId: payload.chapterId, sourceFolderId: payload.sourceFolderId, folderId })
+    const chapterPayload = readChapterDragPayload(e)
+    if (chapterPayload) {
+      moveChapter.mutate({ chapterId: chapterPayload.chapterId, folderId })
+      return
+    }
+    const folderPayload = readFolderDragPayload(e)
+    if (folderPayload && folderPayload.folderId !== folderId) {
+      moveFolder.mutate({ folderId: folderPayload.folderId, parentId: folderId })
+    }
+  }
+
+  function handleFolderDragStart(e: DragEvent) {
+    e.dataTransfer.setData(FOLDER_DRAG_TYPE, JSON.stringify({ folderId }))
+    e.dataTransfer.effectAllowed = 'move'
+    // Stops this drag from also being read as a drop target for itself via
+    // bubbling into an ancestor FolderTreeNode's own row handlers.
+    e.stopPropagation()
   }
 
   const folderIsOpen = isBook ? (settings?.openBookIds ?? []).includes(folderId) : !closedFolderIds.has(folderId)
-  const downloadSubmenu = (kind: 'folder' | { chapterId: string }) => [
-    { label: 'Download as .docx', onClick: () => (kind === 'folder' ? downloadFolder('docx') : downloadChapter(kind.chapterId, 'docx')) },
-    { label: 'Download as .rtf', onClick: () => (kind === 'folder' ? downloadFolder('rtf') : downloadChapter(kind.chapterId, 'rtf')) },
-    { label: 'Download as .txt', onClick: () => (kind === 'folder' ? downloadFolder('txt') : downloadChapter(kind.chapterId, 'txt')) },
-    { label: 'Download as .md', onClick: () => (kind === 'folder' ? downloadFolder('md') : downloadChapter(kind.chapterId, 'md')) },
+  const downloadSubmenu = [
+    { label: 'Download as .docx', onClick: () => downloadFolder('docx') },
+    { label: 'Download as .rtf', onClick: () => downloadFolder('rtf') },
+    { label: 'Download as .txt', onClick: () => downloadFolder('txt') },
+    { label: 'Download as .md', onClick: () => downloadFolder('md') },
   ]
   const hasClosedDescendants =
     !!treeIds &&
@@ -238,9 +215,13 @@ export default function FolderTreeNode({
   return (
     <li className={`tree-item collapsible${level === 0 ? ' book-root' : ''}${expanded ? '' : ' collapsed'}`}>
       <div
-        className={`item-line${folderDragOver ? ' drag-over' : ''}`}
+        className={`item-line${folderDragOver === 'nest' ? ' drag-over' : ''}`}
+        // A book's own root folder can never be reparented (see
+        // services.validate_folder_parent) -- not draggable, matching that.
+        draggable={canEdit && !isBook}
+        onDragStart={handleFolderDragStart}
         onDragOver={handleFolderRowDragOver}
-        onDragLeave={() => setFolderDragOver(false)}
+        onDragLeave={() => setFolderDragOver(null)}
         onDrop={handleFolderRowDrop}
       >
         {hasChildren && (
@@ -253,7 +234,7 @@ export default function FolderTreeNode({
           actions={[
             ...(canEdit ? [{ label: 'Rename', onClick: () => setRenamingFolder(true) }] : []),
             ...(canEdit ? [{ label: 'New chapter', onClick: () => setCreating('chapter') }] : []),
-            ...(canEdit ? [{ label: 'New sub-folder', onClick: () => setCreating('folder') }] : []),
+            ...(canEdit ? [{ label: 'New folder', onClick: () => setCreating('folder') }] : []),
             ...(isBook
               ? canEdit
                 ? [{ label: 'Settings', onClick: () => navigate(`/folders/${folderId}/settings`) }]
@@ -261,7 +242,7 @@ export default function FolderTreeNode({
               : [{ label: 'Settings', onClick: () => navigate(`/folders/${folderId}?settings=1`) }]),
             { label: 'Stats', onClick: () => navigate(`/folders/${folderId}/stats`) },
             { label: 'Goals', onClick: () => navigate(`/goals?resourceType=folder&resourceId=${folderId}`) },
-            { label: 'Download', submenu: downloadSubmenu('folder') },
+            { label: 'Download', submenu: downloadSubmenu },
             ...trailingMenuActions,
             ...(extraMenuActions ?? []),
           ]}
@@ -269,7 +250,7 @@ export default function FolderTreeNode({
       </div>
       {creating === 'folder' && (
         <CreateItemModal
-          title="New sub-folder"
+          title="New folder"
           nameLabel="Name"
           saving={createFolderMutation.isPending}
           onClose={() => setCreating(null)}
@@ -287,20 +268,11 @@ export default function FolderTreeNode({
       )}
       {renamingFolder && (
         <RenameModal
-          title={isBook ? 'Rename book' : 'Rename sub-folder'}
+          title={isBook ? 'Rename book' : 'Rename folder'}
           initialValue={name}
           saving={isBook ? updateBook.isPending : updateFolder.isPending}
           onClose={() => setRenamingFolder(false)}
           onSave={handleRenameFolder}
-        />
-      )}
-      {renamingChapter && (
-        <RenameModal
-          title="Rename chapter"
-          initialValue={renamingChapter.name}
-          saving={renameChapterMutation.isPending}
-          onClose={() => setRenamingChapter(null)}
-          onSave={handleRenameChapter}
         />
       )}
       {expanded && data && (
@@ -318,33 +290,21 @@ export default function FolderTreeNode({
             />
           ))}
           {data.chapters.filter((c) => !closedChapterIds.has(c.id)).map((c) => (
-            <li
+            <ChapterTreeNode
               key={c.id}
-              className={`tree-item chapter-item${
-                chapterDragOver?.id === c.id ? (chapterDragOver.before ? ' drag-over-top' : ' drag-over-bottom') : ''
-              }`}
+              chapterId={c.id}
+              name={c.name}
+              level={level + 1}
+              role={role}
+              closedChapterIds={closedChapterIds}
+              hasChildren={c.hasChildren}
               draggable={canEdit}
-              onDragStart={(e) => handleChapterDragStart(c.id, e)}
-              onDragOver={(e) => handleChapterDragOver(c.id, e)}
-              onDragLeave={() => setChapterDragOver((prev) => (prev?.id === c.id ? null : prev))}
-              onDrop={(e) => handleChapterDrop(c.id, e)}
-            >
-              <Link to={`/chapters/${c.id}`}>{c.name}</Link>
-              <TreeItemMenu
-                actions={[
-                  ...(canEdit ? [{ label: 'Rename', onClick: () => setRenamingChapter({ id: c.id, name: c.name }) }] : []),
-                  { label: 'Settings', onClick: () => navigate(`/chapters/${c.id}?settings=1`) },
-                  { label: 'Stats', onClick: () => navigate(`/chapters/${c.id}/stats`) },
-                  { label: 'Goals', onClick: () => navigate(`/goals?resourceType=chapter&resourceId=${c.id}`) },
-                  { label: 'Download', submenu: downloadSubmenu({ chapterId: c.id }) },
-                  {
-                    label: closedChapterIds.has(c.id) ? 'Open' : 'Close',
-                    onClick: () => toggleChapterOpen(c.id),
-                    separatorBefore: true,
-                  },
-                ]}
-              />
-            </li>
+              isDragOverZone={chapterDragOver?.id === c.id ? chapterDragOver.zone : null}
+              onRowDragStart={(e) => handleChapterDragStart(c.id, e)}
+              onRowDragOver={(e) => handleChapterDragOver(c.id, e)}
+              onRowDragLeave={() => setChapterDragOver((prev) => (prev?.id === c.id ? null : prev))}
+              onSiblingReorderDrop={(draggedId, before) => handleChapterSiblingDrop(c.id, draggedId, before)}
+            />
           ))}
         </ul>
       )}

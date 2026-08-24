@@ -8,6 +8,7 @@ interface AuthContextValue {
   login: (username: string, password: string) => Promise<void>
   logout: () => Promise<void>
   setSession: (me: Me) => void
+  updateTimezone: (timezone: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -31,6 +32,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false))
   }, [])
 
+  useEffect(() => {
+    if (!user || user.timezone !== null) return
+    const detected = Intl.DateTimeFormat().resolvedOptions().timeZone
+    if (!detected) return
+    api
+      .patch<Me>('/me/timezone', { timezone: detected, onlyIfUnset: true })
+      .then((updated) => {
+        setCsrfToken(updated.csrfToken)
+        setUser(updated)
+      })
+      .catch((e) => console.error('Failed to record browser timezone', e))
+  }, [user])
+
   function setSession(me: Me) {
     setCsrfToken(me.csrfToken)
     setUser(me)
@@ -47,7 +61,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }
 
-  return <AuthContext.Provider value={{ user, loading, login, logout, setSession }}>{children}</AuthContext.Provider>
+  async function updateTimezone(timezone: string) {
+    const updated = await api.patch<Me>('/me/timezone', { timezone })
+    setSession(updated)
+  }
+
+  return (
+    <AuthContext.Provider value={{ user, loading, login, logout, setSession, updateTimezone }}>
+      {children}
+    </AuthContext.Provider>
+  )
 }
 
 export function useAuth() {

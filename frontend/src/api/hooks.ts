@@ -6,9 +6,11 @@ import type {
   FolderDetail,
   ChapterSummary,
   ChapterDetail,
+  ChapterTreeChildren,
   ChapterVersionSummary,
   ChapterVersionDetail,
   PresenceUser,
+  ChapterHeartbeatResult,
   UserSettings,
   Share,
   SharedItem,
@@ -24,6 +26,7 @@ import type {
   FolderTreeIds,
   FolderTreeEntry,
   GoalHistory,
+  InternalReferenceTarget,
 } from './types'
 
 type ShareResourceType = 'folder' | 'chapter'
@@ -74,6 +77,14 @@ export function useChapter(chapterId: string | undefined) {
     queryKey: ['chapter', chapterId],
     queryFn: () => api.get<ChapterDetail>(`/chapters/${chapterId}`),
     enabled: chapterId !== undefined,
+  })
+}
+
+export function useInternalReferenceTargets(enabled: boolean) {
+  return useQuery({
+    queryKey: ['internal-references'],
+    queryFn: () => api.get<InternalReferenceTarget[]>('/internal-references'),
+    enabled,
   })
 }
 
@@ -245,6 +256,23 @@ export function useUpdateFolder(folderId: string, parentId: string | null) {
   })
 }
 
+/** Reparents a folder (drag-to-move in the sidebar tree) -- same-book only
+ * (see services.validate_folder_parent). Broad invalidation rather than
+ * precise old/new-parent targeting: a folder move is infrequent enough
+ * that the extra refetch cost isn't worth the bookkeeping. */
+export function useMoveFolder() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: { folderId: string; parentId: string }) =>
+      api.patch<FolderSummary>(`/folders/${vars.folderId}`, { parentId: vars.parentId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['folder'] })
+      qc.invalidateQueries({ queryKey: ['folder-tree-ids'] })
+      qc.invalidateQueries({ queryKey: ['folder-tree'] })
+    },
+  })
+}
+
 export function useDeleteFolder(parentId: string | null) {
   const qc = useQueryClient()
   return useMutation({
@@ -265,7 +293,28 @@ export function useCreateChapter(folderId: string) {
   })
 }
 
-export function useUpdateChapter(chapterId: string, folderId: string) {
+/** "New sub-chapter" -- creates a chapter nested inside another chapter,
+ * mirroring useCreateChapter's shape for a folder parent. */
+export function useCreateNestedChapter(parentChapterId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { name: string; description?: string }) =>
+      api.post<ChapterSummary>('/chapters', { ...data, parentChapterId }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['chapterTreeChildren', parentChapterId] }),
+  })
+}
+
+/** A chapter's own direct child chapters, for the sidebar tree -- lazy
+ * (only fetched while the node is expanded), mirroring useFolder's shape. */
+export function useChapterTreeChildren(chapterId: string | undefined) {
+  return useQuery({
+    queryKey: ['chapterTreeChildren', chapterId],
+    queryFn: () => api.get<ChapterTreeChildren>(`/chapters/${chapterId}/tree-children`),
+    enabled: chapterId !== undefined,
+  })
+}
+
+export function useUpdateChapter(chapterId: string, folderId?: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (
@@ -281,7 +330,11 @@ export function useUpdateChapter(chapterId: string, folderId: string) {
     ) => api.patch<ChapterDetail>(`/chapters/${chapterId}`, data),
     onSuccess: (updated) => {
       qc.setQueryData(['chapter', chapterId], updated)
-      qc.invalidateQueries({ queryKey: ['folder', folderId] })
+      // A nested chapter (folderId undefined here) has no stable enclosing
+      // folder query to target -- invalidate its tree-children queries
+      // instead (covers its own parent chapter's node in the sidebar).
+      if (folderId !== undefined) qc.invalidateQueries({ queryKey: ['folder', folderId] })
+      else qc.invalidateQueries({ queryKey: ['chapterTreeChildren'] })
       // Word count / completion state may have just changed, which any
       // words-or-chapters goal targeting this chapter (or an ancestor
       // folder) tracks live -- without this, the sidebar's primary-goal
@@ -291,37 +344,61 @@ export function useUpdateChapter(chapterId: string, folderId: string) {
   })
 }
 
+/** Reparents a chapter -- to a folder (existing behavior, cross-book
+ * allowed) or to become nested inside another chapter (new). Broad
+ * invalidation rather than precise old/new-parent targeting: with a
+ * chapter's old parent possibly being a folder OR a chapter (and cross-book
+ * moves able to touch goals scoped to either), precisely tracking every
+ * affected query key is more bookkeeping than the extra refetch is worth. */
 export function useMoveChapter() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (vars: { chapterId: string; sourceFolderId: string; folderId: string }) =>
-      api.patch<ChapterDetail>(`/chapters/${vars.chapterId}`, { folderId: vars.folderId }),
-    onSuccess: (updated, vars) => {
+    mutationFn: (vars: { chapterId: string; folderId?: string; parentChapterId?: string }) =>
+      api.patch<ChapterDetail>(`/chapters/${vars.chapterId}`, {
+        ...(vars.folderId !== undefined ? { folderId: vars.folderId } : {}),
+        ...(vars.parentChapterId !== undefined ? { parentChapterId: vars.parentChapterId } : {}),
+      }),
+    onSuccess: (updated) => {
       qc.setQueryData(['chapter', updated.id], updated)
-      qc.invalidateQueries({ queryKey: ['folder', vars.sourceFolderId] })
-      qc.invalidateQueries({ queryKey: ['folder', updated.folderId] })
+      qc.invalidateQueries({ queryKey: ['folder'] })
+      qc.invalidateQueries({ queryKey: ['chapterTreeChildren'] })
+      qc.invalidateQueries({ queryKey: ['goals'] })
     },
   })
 }
 
-export function useRenameChapter(folderId: string) {
+export function useReorderChapterChildren(chapterId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (order: string[]) => api.post<void>(`/chapters/${chapterId}/reorder`, { order }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['chapterTreeChildren', chapterId] }),
+  })
+}
+
+/** `folderId` is optional -- a nested chapter (rendered inside a
+ * ChapterTreeNode, not a FolderTreeNode) has no stable enclosing folder to
+ * bind at hook-creation time, so callers without one just get the broader
+ * invalidation below. */
+export function useRenameChapter(folderId?: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (vars: { chapterId: string; name: string }) =>
       api.patch<ChapterDetail>(`/chapters/${vars.chapterId}`, { name: vars.name }),
     onSuccess: (updated) => {
       qc.setQueryData(['chapter', updated.id], updated)
-      qc.invalidateQueries({ queryKey: ['folder', folderId] })
+      if (folderId !== undefined) qc.invalidateQueries({ queryKey: ['folder', folderId] })
+      else qc.invalidateQueries({ queryKey: ['chapterTreeChildren'] })
     },
   })
 }
 
-export function useDeleteChapter(folderId: string) {
+export function useDeleteChapter(folderId?: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (chapterId: string) => api.del<void>(`/chapters/${chapterId}`),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['folder', folderId] })
+      if (folderId !== undefined) qc.invalidateQueries({ queryKey: ['folder', folderId] })
+      else qc.invalidateQueries({ queryKey: ['chapterTreeChildren'] })
       // Removes the chapter's words/completion from any covering folder
       // goal, and cascade-deletes a goal targeting the chapter directly.
       qc.invalidateQueries({ queryKey: ['goals'] })
@@ -369,8 +446,12 @@ export function useChapterPresence(chapterId: string | undefined) {
 
 export function useChapterPresenceHeartbeat(chapterId: string | undefined) {
   return useMutation({
-    mutationFn: (vars: { wordCount: number; typed: boolean }) =>
-      api.post<void>(`/chapters/${chapterId}/presence`, vars),
+    // typedWordsTotal/pastedWordsTotal are cumulative since the chapter was
+    // opened, not per-heartbeat deltas -- the server diffs them against its
+    // own last-recorded totals (see api.api_heartbeat_chapter_presence),
+    // the same idempotent pattern wordCount already uses.
+    mutationFn: (vars: { wordCount: number; typedWordsTotal: number; pastedWordsTotal: number; hadTypingInput: boolean }) =>
+      api.post<ChapterHeartbeatResult>(`/chapters/${chapterId}/presence`, vars),
   })
 }
 
@@ -385,11 +466,12 @@ export function useChapterPresenceHeartbeat(chapterId: string | undefined) {
 export function useToggleChapterComplete() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (vars: { chapterId: string; folderId: string; completed: boolean }) =>
+    mutationFn: (vars: { chapterId: string; folderId?: string; completed: boolean }) =>
       api.patch<ChapterDetail>(`/chapters/${vars.chapterId}`, { completed: vars.completed }),
     onSuccess: (updated, vars) => {
       qc.setQueryData(['chapter', updated.id], updated)
-      qc.invalidateQueries({ queryKey: ['folder', vars.folderId] })
+      if (vars.folderId !== undefined) qc.invalidateQueries({ queryKey: ['folder', vars.folderId] })
+      else qc.invalidateQueries({ queryKey: ['chapterTreeChildren'] })
       qc.invalidateQueries({ queryKey: ['stats'] })
       qc.invalidateQueries({ queryKey: ['goals'] })
     },

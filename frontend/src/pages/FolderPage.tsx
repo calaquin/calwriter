@@ -146,13 +146,13 @@ export default function FolderPage() {
               ? 'Book'
               : folder.parentAccessible
                 ? <Link to={`/folders/${folder.parentId}`}>&larr; Parent folder</Link>
-                : 'Sub-folder'}
+                : 'Folder'}
           </div>
           <h1>{folder.name}</h1>
           {folder.author && <p className="folder-author">by {folder.author}</p>}
           {folder.description && <p className="folder-description">{folder.description}</p>}
         </div>
-        <div className="folder-page-actions" aria-label={`${isBook ? 'Book' : 'Sub-folder'} actions`}>
+        <div className="folder-page-actions" aria-label={`${isBook ? 'Book' : 'Folder'} actions`}>
           <TreeItemMenu
             actions={[
               ...(canEditSettings
@@ -194,8 +194,8 @@ export default function FolderPage() {
 
       {confirmAction === 'delete' && (
         <ConfirmModal
-          title={`Delete ${isBook ? 'book' : 'sub-folder'}`}
-          message={`Delete this ${isBook ? 'book' : 'sub-folder'} "${folder.name}"? This cannot be undone.`}
+          title={`Delete ${isBook ? 'book' : 'folder'}`}
+          message={`Delete this ${isBook ? 'book' : 'folder'} "${folder.name}"? This cannot be undone.`}
           confirmLabel="Delete"
           pending={del.isPending}
           onConfirm={confirmDelete}
@@ -205,8 +205,8 @@ export default function FolderPage() {
 
       {confirmAction === 'leave' && (
         <ConfirmModal
-          title={`Leave ${isBook ? 'book' : 'sub-folder'}`}
-          message={`Leave this ${isBook ? 'book' : 'sub-folder'} "${folder.name}"? You'll lose access unless re-shared.`}
+          title={`Leave ${isBook ? 'book' : 'folder'}`}
+          message={`Leave this ${isBook ? 'book' : 'folder'} "${folder.name}"? You'll lose access unless re-shared.`}
           confirmLabel="Leave"
           pending={leaveShare.isPending}
           onConfirm={confirmLeave}
@@ -216,7 +216,7 @@ export default function FolderPage() {
 
       {creating === 'folder' && (
         <CreateItemModal
-          title="New sub-folder"
+          title="New folder"
           nameLabel="Name"
           saving={createFolder.isPending}
           onClose={() => setCreating(null)}
@@ -237,7 +237,7 @@ export default function FolderPage() {
       <section className="folder-section">
         <div className="folder-section-header">
           <div>
-            <h2>Sub-folders</h2>
+            <h2>Folders</h2>
             <p>Keep related chapters together.</p>
           </div>
           <span className="folder-count">{folder.folders.length}</span>
@@ -268,10 +268,10 @@ export default function FolderPage() {
             })}
           </ul>
         ) : (
-          <p className="folder-empty-state">No sub-folders yet.</p>
+          <p className="folder-empty-state">No folders yet.</p>
         )}
         {folder.role !== 'viewer' && (
-          <button type="button" className="folder-action" onClick={() => setCreating('folder')}>Add sub-folder</button>
+          <button type="button" className="folder-action" onClick={() => setCreating('folder')}>Add folder</button>
         )}
       </section>
 

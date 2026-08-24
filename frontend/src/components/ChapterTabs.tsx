@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from 'react-router-dom'
-import { useTabs, type OpenTab } from '../context/TabsContext'
+import { useTabs, tabBackTarget, type OpenTab } from '../context/TabsContext'
 import { useBooks } from '../api/hooks'
 
 export default function ChapterTabs() {
@@ -22,7 +22,7 @@ export default function ChapterTabs() {
     if (next) {
       navigate(`/chapters/${next.chapterId}`)
     } else {
-      navigate(tab.folderAccessible ? `/folders/${tab.folderId}` : '/')
+      navigate(tabBackTarget(tab))
     }
   }
 
