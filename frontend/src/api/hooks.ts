@@ -2,6 +2,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import type {
   Book,
+  BookType,
+  JournalWriteTodayResult,
   FolderSummary,
   FolderDetail,
   ChapterSummary,
@@ -14,7 +16,8 @@ import type {
   UserSettings,
   Share,
   SharedItem,
-  SearchResult,
+  SearchResponse,
+  SearchScopeType,
   WorkspaceStats,
   FolderStats,
   ChapterStats,
@@ -127,11 +130,29 @@ export function useChangelog() {
   return useQuery({ queryKey: ['changelog'], queryFn: () => api.get<{ content: string }>('/changelog') })
 }
 
-export function useSearch(query: string) {
+export interface SearchQueryParams {
+  q: string
+  scopeType: SearchScopeType
+  scopeId: string | null
+  offset: number
+  limit?: number
+}
+
+/** Search 2.0 (P1.1). The query key includes every param that changes the
+ * result set -- scope and pagination state included, not just `q` -- so
+ * switching scope or paging never serves another search's cached page, and
+ * permission-sensitive results are never held stale across those changes. */
+export function useSearch(params: SearchQueryParams) {
+  const { q, scopeType, scopeId, offset, limit } = params
   return useQuery({
-    queryKey: ['search', query],
-    queryFn: () => api.get<SearchResult[]>(`/search?q=${encodeURIComponent(query)}`),
-    enabled: query.trim().length > 0,
+    queryKey: ['search', q, scopeType, scopeId, offset, limit],
+    queryFn: () => {
+      const search = new URLSearchParams({ q, scopeType, offset: String(offset) })
+      if (scopeId) search.set('scopeId', scopeId)
+      if (limit) search.set('limit', String(limit))
+      return api.get<SearchResponse>(`/search?${search.toString()}`)
+    },
+    enabled: q.trim().length > 0,
   })
 }
 
@@ -173,10 +194,14 @@ export function useGoalHistory(goalId: string | undefined) {
 
 // -------------------------------------------------------------- mutations --
 
+/** The New Book modal's creation endpoint. `bookType` defaults server-side
+ * to 'novel' when omitted (preserving the original wizard scaffold); pass
+ * it explicitly for Journal/Documentation/General, which create only the
+ * root Book with no Novel-specific folders. */
 export function useCreateBookWizard() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { title: string; chapters: string; author: string; color: string; extras: string[] }) =>
+    mutationFn: (data: { title: string; chapters?: string; author: string; color: string; extras?: string[]; bookType?: BookType }) =>
       api.post<Book>('/books/wizard', data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['books'] }),
   })
@@ -217,12 +242,43 @@ export function useUpdateBook(bookId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (
-      data: Partial<{ name: string; description: string; author: string; color: string; showBookColor: boolean }>,
+      data: Partial<{
+        name: string
+        description: string
+        author: string
+        color: string
+        showBookColor: boolean
+        bookType: BookType
+      }>,
     ) => api.patch<Book>(`/books/${bookId}`, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['books'] })
       qc.invalidateQueries({ queryKey: ['book', bookId] })
       qc.invalidateQueries({ queryKey: ['folder', bookId] })
+    },
+  })
+}
+
+/** P1.2 "Write Today" -- finds or creates the Book owner's local today's
+ * Journal Chapter. The new year/month/day hierarchy (when created) needs
+ * broader invalidation than a normal single-folder mutation: the exact set
+ * of Folder ids affected isn't known client-side ahead of time (an
+ * existing year/month Folder could be reused from anywhere in the Book,
+ * not just fresh ones), so every cached Folder detail/tree is invalidated
+ * -- infrequent enough (one explicit user action) that the extra refetch
+ * cost isn't worth precise targeting, same tradeoff useMoveFolder already
+ * makes for a plain drag-to-move. */
+export function useWriteJournalToday(bookId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post<JournalWriteTodayResult>(`/books/${bookId}/journal/today`, {}),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ['books'] })
+      qc.invalidateQueries({ queryKey: ['book', bookId] })
+      qc.invalidateQueries({ queryKey: ['folder'] })
+      qc.invalidateQueries({ queryKey: ['folder-tree-ids'] })
+      qc.invalidateQueries({ queryKey: ['folder-tree'] })
+      qc.invalidateQueries({ queryKey: ['chapter', result.chapter.id] })
     },
   })
 }
@@ -446,12 +502,18 @@ export function useChapterPresence(chapterId: string | undefined) {
 
 export function useChapterPresenceHeartbeat(chapterId: string | undefined) {
   return useMutation({
-    // typedWordsTotal/pastedWordsTotal are cumulative since the chapter was
-    // opened, not per-heartbeat deltas -- the server diffs them against its
-    // own last-recorded totals (see api.api_heartbeat_chapter_presence),
-    // the same idempotent pattern wordCount already uses.
-    mutationFn: (vars: { wordCount: number; typedWordsTotal: number; pastedWordsTotal: number; hadTypingInput: boolean }) =>
-      api.post<ChapterHeartbeatResult>(`/chapters/${chapterId}/presence`, vars),
+    // typedWordsTotal/pastedWordsTotal/deletedWordsTotal are cumulative
+    // since the chapter was opened, not per-heartbeat deltas -- the server
+    // diffs them against its own last-recorded totals (see
+    // api.api_heartbeat_chapter_presence), the same idempotent pattern
+    // wordCount already uses.
+    mutationFn: (vars: {
+      wordCount: number
+      typedWordsTotal: number
+      pastedWordsTotal: number
+      deletedWordsTotal: number
+      hadTypingInput: boolean
+    }) => api.post<ChapterHeartbeatResult>(`/chapters/${chapterId}/presence`, vars),
   })
 }
 

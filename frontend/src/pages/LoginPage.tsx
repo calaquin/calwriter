@@ -1,7 +1,7 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { ApiError } from '../api/client'
+import { api, ApiError } from '../api/client'
 
 export default function LoginPage() {
   const { login } = useAuth()
@@ -10,6 +10,14 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [version, setVersion] = useState<string | null>(null)
+
+  useEffect(() => {
+    api
+      .get<{ version: string }>('/auth/version')
+      .then((res) => setVersion(res.version))
+      .catch(() => {})
+  }, [])
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -30,6 +38,7 @@ export default function LoginPage() {
       <div className="login-box">
         <img src="/assets/favicon.ico" className="sidebar-icon" alt="CalWriter icon" />
         <h1 className="app-title">CalWriter</h1>
+        {version && <span className="version">v{version}</span>}
         {error && (
           <ul className="flashes">
             <li>{error}</li>

@@ -142,7 +142,7 @@ def healthz():
     return ('', 204)
 
 
-PUBLIC_API_ENDPOINTS = {'api.api_login', 'api.api_get_invite', 'api.api_accept_invite'}
+PUBLIC_API_ENDPOINTS = {'api.api_login', 'api.api_version', 'api.api_get_invite', 'api.api_accept_invite'}
 
 
 @app.before_request

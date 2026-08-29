@@ -15,6 +15,13 @@ export interface Invite {
   expiresAt: string
 }
 
+/** P1.2 Book Types -- metadata/optional behavior layered on the existing
+ * Book (root Folder), never a separate Journal/Novel/Documentation model.
+ * Changing this only ever changes the stored value: never restructures,
+ * renames, deletes, or migrates existing content, and is always
+ * immediately reversible. */
+export type BookType = 'general' | 'novel' | 'journal' | 'documentation'
+
 export interface Book {
   id: string
   name: string
@@ -25,6 +32,7 @@ export interface Book {
    * a sub-folder or chapter further down the tree can still opt out on its
    * own even when this is true. */
   showBookColor: boolean
+  bookType: BookType
   role: Role
   createdAt: string
   updatedAt: string
@@ -68,6 +76,10 @@ export interface ChapterSummary {
   completedAt: string | null
   /** This chapter's own opt-in/opt-out of the book-color background tint. */
   showBookColor: boolean
+  /** P1.2: the Journal day this chapter represents, an ISO date
+   * ("2026-08-29") or null for an ordinary chapter -- authoritative
+   * regardless of this chapter's name, current folder, or Book Type. */
+  journalDate: string | null
   role: Role
   directShare: boolean
   /** Whether this chapter has at least one child chapter -- drives whether
@@ -135,7 +147,30 @@ export interface SharedItem {
   bookName: string
 }
 
+/** P1.1A -- stable format IDs only (shown in the UI as a rendered example,
+ * never as this raw string -- see JOURNAL_DATE_FORMAT_OPTIONS). */
+export type JournalDateFormat =
+  | 'long_month_day_year'
+  | 'short_month_day_year'
+  | 'day_long_month_year'
+  | 'day_short_month_year'
+  | 'us_numeric'
+  | 'day_first_numeric'
+  | 'iso'
+  | 'weekday_long'
+
+export type JournalTimeFormat = '12_hour' | '24_hour'
+
 export interface UserSettings {
+  /** User-level default for newly generated Journal day-Chapter names --
+   * for a shared Journal, the *Book owner's* value applies (see
+   * JournalWriteTodayResult). Changing this never renames existing
+   * Chapters. */
+  journalDateFormat: JournalDateFormat
+  /** User-level default for Write Today timestamp labels -- same
+   * owner-authoritative rule as journalDateFormat. Changing this never
+   * rewrites previously inserted timestamps. */
+  journalTimeFormat: JournalTimeFormat
   darkMode: boolean
   sidebarColor: string
   textColor: string
@@ -161,8 +196,47 @@ export interface UserSettings {
   primaryGoalId: string | null
 }
 
-export interface SearchResult extends ChapterSummary {
-  matchType: 'chapter' | 'notes'
+export type SearchScopeType = 'workspace' | 'book' | 'folder'
+export type SearchMatchSource = 'title' | 'content' | 'notes'
+
+export interface SearchSnippet {
+  before: string
+  /** Original matched text, casing preserved -- not the query as typed. */
+  match: string
+  after: string
+  leadingEllipsis: boolean
+  trailingEllipsis: boolean
+}
+
+export interface SearchMatch {
+  chapterId: string
+  chapterName: string
+  bookId: string
+  bookName: string
+  bookColor: string | null
+  source: SearchMatchSource
+  /** Zero-based, independent per source -- null for a title match (a
+   * chapter contributes at most one). Also doubles as the findIndex sent
+   * to ChapterPage for jump-to-occurrence navigation. */
+  occurrenceIndex: number | null
+  /** Offsets into that source's canonical searchable plain-text form (see
+   * services.html_to_search_text on the backend / canonicalSearchText on
+   * the frontend) -- for a title match, into the title string itself. */
+  startOffset: number
+  endOffset: number
+  snippet: SearchSnippet
+}
+
+export interface SearchResponse {
+  query: string
+  scopeType: SearchScopeType
+  scopeId: string | null
+  totalMatches: number
+  totalChapters: number
+  limit: number
+  offset: number
+  hasMore: boolean
+  matches: SearchMatch[]
 }
 
 export interface Stats {
@@ -219,12 +293,18 @@ export interface WorkspaceStats extends Stats {
   totalActiveSeconds: number
   /** All-time, personal (this user only) genuinely-typed word count --
    * distinct from totalWords (the document's current size) and from
-   * wordsPasted below. */
+   * wordsPasted below. Kept alongside wordsWritten because WPM and goal
+   * progress use this gross figure, never the net one. */
   wordsTyped: number
   /** All-time, personal count of words brought in via paste or an external
    * drop -- included in totalWords, but never in wordsTyped, goal
    * progress, or WPM. */
   wordsPasted: number
+  /** All-time, personal count of genuinely typed/composed words removed --
+   * see wordsWritten. */
+  wordsDeleted: number
+  /** The "Words written" stat shown in the UI: max(wordsTyped - wordsDeleted, 0). */
+  wordsWritten: number
 }
 
 export interface StaleChapter {
@@ -243,6 +323,8 @@ export interface ChapterStatsBreakdown {
   id: string
   name: string
   versionCount: number
+  /** Net "words written" (typed minus deleted, floored at 0), resource-wide
+   * across every contributor -- not gross typed, and not personal-only. */
   recentVelocity7d: number
   recentVelocity30d: number
   /** WPM for the viewer only; never a collaborator blend. */
@@ -252,6 +334,9 @@ export interface ChapterStatsBreakdown {
 export interface ActivityTotals {
   wordsTyped: number
   wordsPasted: number
+  wordsDeleted: number
+  /** max(wordsTyped - wordsDeleted, 0) -- the "Words written" stat. */
+  wordsWritten: number
   activeSeconds: number
 }
 
@@ -310,6 +395,34 @@ export interface PresenceUser {
 export interface ChapterHeartbeatResult {
   /** null until the user has recorded some active writing time here. */
   averageWpm: number | null
+}
+
+/** P1.2 "Write Today" -- POST /books/:id/journal/today's response. Hands
+ * the frontend everything needed to navigate to the resolved Chapter and
+ * append exactly one client-side timestamp (see ChapterEditor's
+ * journalEntryRequest) without inserting it here. */
+export interface JournalWriteTodayResult {
+  chapter: ChapterSummary
+  /** False when today's Chapter already existed and was simply reused. */
+  created: boolean
+  /** ISO date, the Book owner's local "today" -- see Chapter.journalDate. */
+  journalDate: string
+  /** Fresh per successful call -- consumed exactly once by the Chapter
+   * page's timestamp-insertion handoff, so Strict Mode/rerenders/refetches
+   * can never append a second timestamp for the same click. */
+  entryRequestId: string
+  /** ISO instant: when this Write Today request was made, not inserted
+   * server-side. Kept for compatibility/diagnostics -- the frontend
+   * inserts entryTimeLabel verbatim rather than reformatting this itself. */
+  entryTimestamp: string
+  /** P1.1A: entryTimestamp already formatted using the Book *owner's*
+   * journalTimeFormat preference (e.g. "10:42 PM" or "22:42") -- insert
+   * this exactly as returned. Guarantees every collaborator's client shows
+   * the identical label regardless of their own browser locale/settings. */
+  entryTimeLabel: string
+  /** IANA zone, always the Book owner's (resolved, safely-falls-back-to-UTC)
+   * timezone entryTimeLabel was formatted in. */
+  journalTimezone: string
 }
 
 export interface FolderTreeIds {

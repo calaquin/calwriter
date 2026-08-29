@@ -172,10 +172,12 @@ def test_activity_aggregate_helper_supports_resource_and_per_user_breakdowns(
     db.session.commit()
 
     scope = chapter_ids_under_folder(tree['folderB'].id)
-    assert writing_activity_totals(scope) == {'wordsTyped': 97, 'wordsPasted': 14, 'activeSeconds': 582}
+    assert writing_activity_totals(scope) == {
+        'wordsTyped': 97, 'wordsPasted': 14, 'wordsDeleted': 0, 'wordsWritten': 97, 'activeSeconds': 582,
+    }
     assert writing_activity_totals(scope, user_id=user.id) == {
-        'wordsTyped': 90, 'wordsPasted': 12, 'activeSeconds': 540,
+        'wordsTyped': 90, 'wordsPasted': 12, 'wordsDeleted': 0, 'wordsWritten': 90, 'activeSeconds': 540,
     }
     assert writing_activity_totals(scope, user_id=collaborator.id) == {
-        'wordsTyped': 7, 'wordsPasted': 2, 'activeSeconds': 42,
+        'wordsTyped': 7, 'wordsPasted': 2, 'wordsDeleted': 0, 'wordsWritten': 7, 'activeSeconds': 42,
     }

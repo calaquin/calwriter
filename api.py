@@ -88,6 +88,15 @@ from services import (
     user_local_today,
     writing_activity_totals,
     writing_activity_contributions,
+    calculate_wpm,
+    search_chapter_matches,
+    build_search_snippet,
+    BOOK_TYPES,
+    journal_write_today,
+    JOURNAL_DATE_FORMATS,
+    JOURNAL_TIME_FORMATS,
+    DEFAULT_JOURNAL_TIME_FORMAT,
+    format_journal_time,
 )
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
@@ -156,6 +165,13 @@ def book_to_dict(book: Folder) -> dict:
         'author': book.author,
         'color': book.color,
         'showBookColor': book.show_book_color,
+        # P1.2. A pre-migration/never-set root row would read None here --
+        # application logic (never a NOT NULL constraint, since Folder rows
+        # of every kind share this column) treats that the same as
+        # 'general' everywhere it matters; the migration itself already
+        # backfills every existing Book, so this is a defensive fallback,
+        # not the normal path.
+        'bookType': book.book_type or 'general',
         'role': role_for_folder(book),
         'createdAt': book.created_at.isoformat(),
         'updatedAt': book.updated_at.isoformat(),
@@ -216,6 +232,9 @@ def chapter_summary_dict(chapter: Chapter, *, has_children: bool | None = None) 
         'updatedAt': chapter.updated_at.isoformat(),
         'completedAt': chapter.completed_at.isoformat() if chapter.completed_at else None,
         'showBookColor': chapter.show_book_color,
+        # P1.2: the Journal day this chapter represents, if any -- see
+        # Chapter.journal_date's docstring. Independent of name/Book Type.
+        'journalDate': chapter.journal_date.isoformat() if chapter.journal_date else None,
         'role': role_for_chapter(chapter),
         'directShare': ResourceShare.query.filter_by(chapter_id=chapter.id, user_id=current_user.id).first()
         is not None,
@@ -486,8 +505,14 @@ def goal_dict(goal: Goal) -> dict:
     return d
 
 
-def settings_to_dict(settings: UserSettings) -> dict:
+def settings_to_dict(settings: UserSettings, user: User) -> dict:
     return {
+        # P1.1A: stored on User (a shared Journal reads the *Book owner's*
+        # row -- see journal_write_today/format_journal_time), not
+        # UserSettings, but exposed through this same settings response
+        # since the Settings page saves everything through one call.
+        'journalDateFormat': user.journal_date_format,
+        'journalTimeFormat': user.journal_time_format,
         'darkMode': settings.dark_mode,
         'sidebarColor': settings.sidebar_color,
         'textColor': settings.text_color,
@@ -512,6 +537,11 @@ def settings_to_dict(settings: UserSettings) -> dict:
 
 
 # ---------------------------------------------------------------- auth --
+
+@api_bp.route('/auth/version')
+def api_version():
+    return jsonify({'version': VERSION})
+
 
 @api_bp.route('/auth/login', methods=['POST'])
 @csrf.exempt
@@ -780,9 +810,7 @@ def busiest_resource_dict(chapter_ids: list, days: int, user_id):
 def writing_wpm(chapter_ids: list, user_id) -> float | None:
     """Per-user WPM. A user id is mandatory so WPM can never be blended."""
     totals = writing_activity_totals(chapter_ids, user_id=user_id)
-    words = totals['wordsTyped']
-    seconds = totals['activeSeconds']
-    return round(words / (seconds / 60), 1) if seconds > 0 else None
+    return calculate_wpm(totals['wordsTyped'], totals['activeSeconds'])
 
 
 def total_active_seconds_for(chapter_ids: list, user_id) -> int:
@@ -791,17 +819,18 @@ def total_active_seconds_for(chapter_ids: list, user_id) -> int:
 
 
 def words_written_in_window(chapter_ids: list, days: int) -> int:
-    """Resource-level typed words for a chapter velocity display."""
+    """Resource-level net "words written" (typed minus deleted, floored at 0)
+    for a chapter velocity display."""
     cutoff = user_local_today() - datetime.timedelta(days=days - 1)
-    return writing_activity_totals(chapter_ids, start_date=cutoff)['wordsTyped']
+    return writing_activity_totals(chapter_ids, start_date=cutoff)['wordsWritten']
 
 
-def personal_words_typed_and_pasted(chapter_ids: list, user_id) -> tuple[int, int]:
-    """All-time (typed, pasted) totals for `user_id` across `chapter_ids` --
-    personal, unlike words_written_in_window above. Backs the workspace
-    Stats page's "Words written"/"Words pasted" tiles."""
-    totals = writing_activity_totals(chapter_ids, user_id=user_id)
-    return totals['wordsTyped'], totals['wordsPasted']
+def personal_writing_totals(chapter_ids: list, user_id) -> dict:
+    """All-time (written, pasted, deleted, typed) totals for `user_id` across
+    `chapter_ids` -- personal, unlike words_written_in_window above. Backs
+    the workspace Stats page's "Words written"/"Words pasted"/"Words deleted"
+    tiles."""
+    return writing_activity_totals(chapter_ids, user_id=user_id)
 
 
 def resource_activity_dict(chapter_ids: list) -> dict:
@@ -851,7 +880,7 @@ def api_workspace_stats():
     if days > 0:
         cutoff = (user_local_today() - datetime.timedelta(days=days - 1)).isoformat()
         words_per_day = {d: c for d, c in words_per_day.items() if d >= cutoff}
-    words_typed, words_pasted = personal_words_typed_and_pasted(chapter_ids, current_user.id)
+    personal_totals = personal_writing_totals(chapter_ids, current_user.id)
     return jsonify({
         'totalWords': total_words,
         'chapterCount': len(chapters),
@@ -865,8 +894,10 @@ def api_workspace_stats():
         'busiestResource': busiest_resource_dict(chapter_ids, days, current_user.id),
         'avgWpm': writing_wpm(chapter_ids, user_id=current_user.id),
         'totalActiveSeconds': total_active_seconds_for(chapter_ids, user_id=current_user.id),
-        'wordsTyped': words_typed,
-        'wordsPasted': words_pasted,
+        'wordsTyped': personal_totals['wordsTyped'],
+        'wordsPasted': personal_totals['wordsPasted'],
+        'wordsDeleted': personal_totals['wordsDeleted'],
+        'wordsWritten': personal_totals['wordsWritten'],
     })
 
 
@@ -878,7 +909,12 @@ def api_create_book():
         return error('name is required')
     if Folder.query.filter_by(parent_id=None, name=name).first():
         return error('Name already exists', 409)
-    book = create_book(name, owner_id=current_user.id)
+    # Plain/direct creation defaults to 'general' -- the interactive New
+    # Book wizard (api_create_book_wizard) is what defaults to 'novel'.
+    book_type = data.get('bookType', 'general')
+    if book_type not in BOOK_TYPES:
+        return error('Invalid bookType')
+    book = create_book(name, owner_id=current_user.id, book_type=book_type)
     settings = get_user_settings()
     settings.open_book_ids = settings.open_book_ids + [book.id]
     db.session.commit()
@@ -910,6 +946,13 @@ def api_update_book(book_id):
         book.color = data['color']
     if 'showBookColor' in data:
         book.show_book_color = bool(data['showBookColor'])
+    if 'bookType' in data:
+        # Changing Book Type is metadata-only -- see Folder.book_type's
+        # docstring and journal_write_today. Never touches content,
+        # hierarchy, goals, or statistics, and is immediately reversible.
+        if data['bookType'] not in BOOK_TYPES:
+            return error('Invalid bookType')
+        book.book_type = data['bookType']
     db.session.commit()
     return jsonify(book_to_dict(book))
 
@@ -924,30 +967,82 @@ def api_delete_book(book_id):
 
 @api_bp.route('/books/wizard', methods=['POST'])
 def api_create_book_wizard():
+    """The interactive New Book modal's creation endpoint. `bookType`
+    defaults to 'novel' when omitted, preserving the original creation
+    scaffold (Chapters folder + Chapter One + selected extras) exactly for
+    any existing caller that doesn't send it -- see P1.2's "do not silently
+    change callers that currently depend on the existing Novel wizard
+    scaffolding". A non-Novel type creates only the root Book: Journal's
+    year/month/day hierarchy is built lazily by the first Write Today, not
+    at creation time; Documentation/General start genuinely empty in v1."""
     data = request.get_json(silent=True) or {}
     title = clean_name(data.get('title', ''))
-    chapters_name = clean_name(data.get('chapters', 'Chapters'))
     author_text = (data.get('author') or '').strip()
     color_value = (data.get('color') or '#dddddd').strip()
-    extras = data.get('extras') or []
+    book_type = data.get('bookType') or 'novel'
+    if book_type not in BOOK_TYPES:
+        return error('Invalid bookType')
     if not title:
         return error('title is required')
     if Folder.query.filter_by(parent_id=None, name=title).first():
         return error('Name already exists', 409)
-    book = create_book(title, owner_id=current_user.id, author=author_text, color=color_value)
-    if chapters_name:
-        chap_folder = Folder(parent_id=book.id, book_id=book.id, name=chapters_name, position=0)
-        db.session.add(chap_folder)
-        db.session.flush()
-        db.session.add(Chapter(folder_id=chap_folder.id, book_id=book.id, name='Chapter One', position=0))
-    for idx, sub in enumerate(extras, start=1):
-        sub_name = clean_name(sub)
-        if sub_name and not Folder.query.filter_by(parent_id=book.id, name=sub_name).first():
-            db.session.add(Folder(parent_id=book.id, book_id=book.id, name=sub_name, position=idx))
+    book = create_book(title, owner_id=current_user.id, author=author_text, color=color_value, book_type=book_type)
+    if book_type == 'novel':
+        chapters_name = clean_name(data.get('chapters', 'Chapters'))
+        extras = data.get('extras') or []
+        if chapters_name:
+            chap_folder = Folder(parent_id=book.id, book_id=book.id, name=chapters_name, position=0)
+            db.session.add(chap_folder)
+            db.session.flush()
+            db.session.add(Chapter(folder_id=chap_folder.id, book_id=book.id, name='Chapter One', position=0))
+        for idx, sub in enumerate(extras, start=1):
+            sub_name = clean_name(sub)
+            if sub_name and not Folder.query.filter_by(parent_id=book.id, name=sub_name).first():
+                db.session.add(Folder(parent_id=book.id, book_id=book.id, name=sub_name, position=idx))
     settings = get_user_settings()
     settings.open_book_ids = settings.open_book_ids + [book.id]
     db.session.commit()
     return jsonify(book_to_dict(book)), 201
+
+
+@api_bp.route('/books/<uuid:book_id>/journal/today', methods=['POST'])
+def api_journal_write_today(book_id):
+    """P1.2 "Write Today": finds or creates the Book owner's local today's
+    Journal Chapter (year/month/day hierarchy created lazily on first use --
+    see journal_write_today). Editor-or-higher only; a Viewer can read
+    Journal content but never triggers creation/continuation of an entry.
+    The response hands the frontend everything needed to navigate there and
+    append exactly one client-side timestamp (never inserted here -- see
+    ChapterEditor's Journal handoff) without double-appending across
+    Strict Mode/rerenders: a fresh entryRequestId per successful call."""
+    book = require_book_access(book_id, 'editor')
+    if (book.book_type or 'general') != 'journal':
+        return error('This book is not a Journal')
+    try:
+        chapter, created = journal_write_today(book)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return error("Couldn't create today's Journal entry.", 500)
+    owner = db.session.get(User, book.owner_id)
+    owner_timezone = owner.timezone if owner is not None and is_valid_timezone(owner.timezone) else 'UTC'
+    entry_timestamp = datetime.datetime.now(datetime.timezone.utc)
+    # P1.1A: pre-formatted using the Book *owner's* time-format preference
+    # (never the requesting Editor's) so every collaborator's client
+    # inserts an identical label regardless of their own browser locale/
+    # settings -- see format_journal_time. The raw entryTimestamp/
+    # journalTimezone fields stay for compatibility/diagnostics.
+    owner_time_format = owner.journal_time_format if owner is not None else DEFAULT_JOURNAL_TIME_FORMAT
+    entry_time_label = format_journal_time(entry_timestamp, owner_timezone, owner_time_format)
+    return jsonify({
+        'chapter': chapter_summary_dict(chapter),
+        'created': created,
+        'journalDate': chapter.journal_date.isoformat(),
+        'entryRequestId': str(uuid.uuid4()),
+        'entryTimestamp': entry_timestamp.isoformat(),
+        'entryTimeLabel': entry_time_label,
+        'journalTimezone': owner_timezone,
+    })
 
 
 @api_bp.route('/books/<uuid:book_id>/export.docx')
@@ -1655,13 +1750,13 @@ def api_heartbeat_chapter_presence(chapter_id):
     """Also the carrier for input-source-aware writing-activity tracking.
     `wordCount` is the chapter's live total, diffed against the
     last-recorded `last_word_count` the same way it always has been.
-    `typedWordsTotal`/`pastedWordsTotal` are cumulative *since the editor
-    mounted* (never reset by the client mid-session -- see
+    `typedWordsTotal`/`pastedWordsTotal`/`deletedWordsTotal` are cumulative
+    *since the editor mounted* (never reset by the client mid-session -- see
     ChapterPage.tsx), diffed the identical way against
-    `last_typed_words`/`last_pasted_words`. This makes the transport
-    self-healing: a dropped heartbeat's words aren't lost (the next
-    successful heartbeat's larger cumulative total catches the server up),
-    and a duplicated heartbeat can't double-credit (the same cumulative
+    `last_typed_words`/`last_pasted_words`/`last_deleted_words`. This makes
+    the transport self-healing: a dropped heartbeat's words aren't lost (the
+    next successful heartbeat's larger cumulative total catches the server
+    up), and a duplicated heartbeat can't double-credit (the same cumulative
     value diffs to zero the second time). A page reload resets the client's
     counters to 0, which briefly diffs negative against a nonzero
     last_recorded value -- clamped to 0 (no phantom credit) and
@@ -1694,6 +1789,7 @@ def api_heartbeat_chapter_presence(chapter_id):
 
     typed_words_total = as_nonneg_int(data.get('typedWordsTotal'))
     pasted_words_total = as_nonneg_int(data.get('pastedWordsTotal'))
+    deleted_words_total = as_nonneg_int(data.get('deletedWordsTotal'))
     had_typing_input = bool(data.get('hadTypingInput'))
 
     # The unique (chapter_id, user_id) identity is the concurrency boundary.
@@ -1710,6 +1806,7 @@ def api_heartbeat_chapter_presence(chapter_id):
             last_word_count=word_count,
             last_typed_words=typed_words_total,
             last_pasted_words=pasted_words_total,
+            last_deleted_words=deleted_words_total,
         )
         .on_conflict_do_nothing(
             index_elements=[ChapterPresence.chapter_id, ChapterPresence.user_id]
@@ -1737,17 +1834,19 @@ def api_heartbeat_chapter_presence(chapter_id):
             elapsed = min((now - last_seen).total_seconds(), MAX_HEARTBEAT_ELAPSED.total_seconds())
             typed_delta = max(0, typed_words_total - row.last_typed_words)
             pasted_delta = max(0, pasted_words_total - row.last_pasted_words)
+            deleted_delta = max(0, deleted_words_total - row.last_deleted_words)
             # Active seconds gate on genuine typing input alone -- a
             # paste-only interval still credits pasted_delta, just with 0
             # elapsed, so it can never inflate WPM's active-time denominator.
             elapsed_for_activity = elapsed if had_typing_input else 0
-            if had_typing_input or typed_delta > 0 or pasted_delta > 0:
+            if had_typing_input or typed_delta > 0 or pasted_delta > 0 or deleted_delta > 0:
                 record_writing_activity(
-                    chapter, current_user.id, elapsed_for_activity, typed_delta, pasted_delta
+                    chapter, current_user.id, elapsed_for_activity, typed_delta, pasted_delta, deleted_delta
                 )
         row.last_word_count = word_count
         row.last_typed_words = typed_words_total
         row.last_pasted_words = pasted_words_total
+        row.last_deleted_words = deleted_words_total
     row.last_seen = now
     db.session.commit()
     return jsonify({'averageWpm': writing_wpm([chapter.id], current_user.id)})
@@ -1963,7 +2062,7 @@ def api_update_timezone():
 
 @api_bp.route('/me/settings')
 def api_get_settings():
-    return jsonify(settings_to_dict(get_user_settings()))
+    return jsonify(settings_to_dict(get_user_settings(), current_user))
 
 
 @api_bp.route('/me/settings', methods=['PATCH'])
@@ -2017,49 +2116,157 @@ def api_update_settings():
     # re-enable WPM, so the two preferences remain predictable.
     if not settings.show_word_count:
         settings.show_average_wpm = False
+    # P1.1A: stored on User, not UserSettings (see settings_to_dict) --
+    # never trust the frontend dropdown as the only validator. Takes effect
+    # immediately for future Journal generation only; never rewrites
+    # existing Chapter names/timestamps.
+    if 'journalDateFormat' in data:
+        if data['journalDateFormat'] not in JOURNAL_DATE_FORMATS:
+            return error('Invalid journalDateFormat')
+        current_user.journal_date_format = data['journalDateFormat']
+    if 'journalTimeFormat' in data:
+        if data['journalTimeFormat'] not in JOURNAL_TIME_FORMATS:
+            return error('Invalid journalTimeFormat')
+        current_user.journal_time_format = data['journalTimeFormat']
     db.session.commit()
-    return jsonify(settings_to_dict(settings))
+    return jsonify(settings_to_dict(settings, current_user))
 
 
 # -------------------------------------------------------------- search --
+#
+# Search 2.0 (P1.1). search_tsv (Chapter's PostgreSQL FTS column/index) is
+# deliberately NOT consulted here any more -- English FTS drops stop words
+# and normalizes tokens in ways that made it an incorrect *gate* for literal
+# substring search ("the", punctuation, non-English names). Given this
+# app's scale, a straightforward permission-scoped full scan using literal
+# case-insensitive matching (see services.find_literal_occurrences) is
+# simpler and, more importantly, actually correct; search_tsv itself is
+# left in place in case a future optimization wants it back as a candidate
+# pre-filter (never as the sole correctness gate).
+
+SEARCH_DEFAULT_LIMIT = 50
+SEARCH_MAX_LIMIT = 100
+SEARCH_SCOPE_TYPES = {'workspace', 'book', 'folder'}
+
+
+def _search_scope_chapter_ids(scope_type: str, scope_id) -> list:
+    """Chapter ids to search for a scope, already permission-correct.
+
+    require_book_access/require_folder_access 404 (not reveal-why) for a
+    scope the current user can't read at all -- "an unavailable scope
+    should respond using the application's normal unavailable/not-found
+    behavior" -- so an inaccessible Book/Folder scope is simply never
+    reachable past this point.
+    """
+    if scope_type == 'book':
+        require_book_access(scope_id, 'viewer')
+        # book_id is denormalized onto every chapter regardless of nesting
+        # depth (see Chapter's docstring), so this single filter already
+        # includes every recursively nested chapter in the book -- no BFS
+        # needed the way a specific (possibly non-root) folder scope needs.
+        return [row.id for row in Chapter.query.filter_by(book_id=scope_id).with_entities(Chapter.id)]
+    if scope_type == 'folder':
+        require_folder_access(scope_id, 'viewer')
+        return chapter_ids_under_folder(scope_id)
+    # workspace: every chapter the current user can currently read at all --
+    # whole-book access, plus narrower folder/chapter shares for books they
+    # don't otherwise have whole-book access to (mirrors the old endpoint's
+    # own set-building, and FolderPage/Sidebar's "shared with me" logic).
+    book_ids = accessible_book_ids()
+    chapter_ids = set()
+    if book_ids:
+        chapter_ids.update(row.id for row in Chapter.query.filter(Chapter.book_id.in_(book_ids)).with_entities(Chapter.id))
+    shared_folders, shared_chapters = shared_items()
+    for f in shared_folders:
+        chapter_ids.update(chapter_ids_under_folder(f.id))
+    for c in shared_chapters:
+        chapter_ids.update(descendant_chapter_ids(c.id))
+    return list(chapter_ids)
+
 
 @api_bp.route('/search')
 def api_search():
     query = (request.args.get('q') or '').strip()
-    results = []
+    scope_type = request.args.get('scopeType') or 'workspace'
+    if scope_type not in SEARCH_SCOPE_TYPES:
+        return error('Invalid scopeType')
+
+    raw_scope_id = request.args.get('scopeId')
+    scope_id = None
+    if scope_type in ('book', 'folder'):
+        scope_id = parse_uuid(raw_scope_id)
+        if scope_id is None:
+            return error('scopeId is required and must be a valid UUID for this scopeType')
+    elif raw_scope_id:
+        return error('scopeId is not valid for a workspace search')
+
+    try:
+        limit = int(request.args.get('limit', SEARCH_DEFAULT_LIMIT))
+        offset = int(request.args.get('offset', 0))
+    except (TypeError, ValueError):
+        return error('limit/offset must be integers')
+    # Clamped, not rejected -- a caller asking for more than the max simply
+    # gets the max back, so pathological limits can't force rendering (or
+    # snippet-building, see below) thousands of results in one response.
+    limit = max(1, min(limit, SEARCH_MAX_LIMIT))
+    offset = max(0, offset)
+
+    all_matches: list[tuple] = []
+    matched_chapter_ids: set = set()
     if query:
-        book_ids = accessible_book_ids()
-        shared_folders, shared_chapters = shared_items()
-        # Expand each shared folder/chapter into its full descendant chapter
-        # set -- a chapter nested under another chapter has folder_id NULL,
-        # so a bare Chapter.folder_id.in_(...)/Chapter.id.in_(shared ids)
-        # filter would silently miss it either way a share reaches it.
-        chapter_ids = set()
-        for f in shared_folders:
-            chapter_ids.update(chapter_ids_under_folder(f.id))
-        for c in shared_chapters:
-            chapter_ids.update(descendant_chapter_ids(c.id))
+        chapter_ids = _search_scope_chapter_ids(scope_type, scope_id)
+        chapters = (
+            Chapter.query.filter(Chapter.id.in_(chapter_ids))
+            .order_by(Chapter.updated_at.desc(), Chapter.id)
+            .all()
+            if chapter_ids else []
+        )
+        # Every candidate chapter's title/content/notes must be scanned to
+        # know the true total (unavoidable for a correct count/order with a
+        # plain literal scan) -- but snippet text is only ever built below
+        # for the one page actually being returned, not all totalMatches.
+        for chapter in chapters:
+            for m in search_chapter_matches(chapter, query):
+                all_matches.append((chapter, m))
+                matched_chapter_ids.add(chapter.id)
 
-        conditions = []
-        if book_ids:
-            conditions.append(Chapter.book_id.in_(book_ids))
-        if chapter_ids:
-            conditions.append(Chapter.id.in_(chapter_ids))
+    total_matches = len(all_matches)
+    total_chapters = len(matched_chapter_ids)
+    page = all_matches[offset:offset + limit]
 
-        candidates = []
-        if conditions:
-            candidates = (
-                Chapter.query.filter(db.or_(*conditions))
-                .filter(Chapter.search_tsv.match(query, postgresql_regconfig='english'))
-                .all()
-            )
-        qlower = query.lower()
-        for chapter in candidates:
-            if qlower in chapter.name.lower() or qlower in html_to_text(chapter.content_html).lower():
-                results.append({**chapter_summary_dict(chapter), 'matchType': 'chapter'})
-            if qlower in (chapter.notes_text or '').lower():
-                results.append({**chapter_summary_dict(chapter), 'matchType': 'notes'})
-    return jsonify(results)
+    book_ids_needed = {chapter.book_id for chapter, _ in page}
+    books = (
+        {row.id: row for row in Folder.query.filter(Folder.id.in_(book_ids_needed)).with_entities(Folder.id, Folder.name, Folder.color)}
+        if book_ids_needed else {}
+    )
+
+    matches_out = []
+    for chapter, m in page:
+        book = books.get(chapter.book_id)
+        matches_out.append({
+            'chapterId': chapter.id,
+            'chapterName': chapter.name,
+            'bookId': chapter.book_id,
+            'bookName': book.name if book is not None else '',
+            'bookColor': (book.color or None) if book is not None else None,
+            'source': m['source'],
+            'occurrenceIndex': m['occurrenceIndex'],
+            'startOffset': m['startOffset'],
+            'endOffset': m['endOffset'],
+            'snippet': build_search_snippet(m['text'], m['startOffset'], m['endOffset']),
+        })
+
+    return jsonify({
+        'query': query,
+        'scopeType': scope_type,
+        'scopeId': scope_id,
+        'totalMatches': total_matches,
+        'totalChapters': total_chapters,
+        'limit': limit,
+        'offset': offset,
+        'hasMore': offset + limit < total_matches,
+        'matches': matches_out,
+    })
 
 
 # ---------------------------------------------------------- export/import --

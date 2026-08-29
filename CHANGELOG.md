@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.21.1 - 2026-08-29 16:19 UTC
+- Added Journal date/time formatting preferences (Settings -> Journal): choose from eight date styles (e.g. "August 29, 2026", "2026-08-29", "29 Aug 2026") for newly generated Journal day-chapter names, and 12-hour or 24-hour for Write Today timestamps. Each dropdown shows the actual rendered example rather than an internal name
+- These preferences only affect entries created after you change them -- existing Journal chapter names and previously inserted timestamps are never rewritten
+- For a shared Journal, every collaborator's **Write today** uses the Book owner's formatting preferences (matching the existing owner's-timezone rule for "today"), so everyone writing into the same Journal sees consistent names and timestamps regardless of their own settings
+
+## 0.21.0 - 2026-08-29 16:00 UTC
+- Added Book Types: every book is now General, Novel, Journal, or Documentation. The New Book dialog lets you pick one up front (Novel stays the default, preserving the familiar chapters/characters/factions/locations setup), and Book Settings lets you change it later just like changing a book's color -- switching types (including back and forth) never moves, renames, or deletes anything in the book
+- Added Journal books with a **Write today** action: the first time you use it, CalWriter creates this year, this month, and today's chapter automatically (organized as Year -> Month -> Day) and opens it; using it again the same day reopens that same chapter instead of creating a duplicate, appending a new timestamp below whatever you already wrote. A shared Journal always resolves "today" using the book owner's timezone, so collaborators in different timezones agree on the date
+- Journal chapters and their year/month folders stay recognized by CalWriter no matter how you rename or reorganize them -- rename "August" to "Summer" or a day's chapter to something personal, and Write Today still finds the right one
+- The inserted timestamp is a normal, undoable editor edit (Undo removes just the timestamp; Redo brings it back) and never counts as writing activity -- no typed/pasted/deleted words, no WPM, and no goal progress just from clicking Write Today
+- Portable `.calwdb` backups (now format v4) include Book Type and Journal organization metadata; older v3 archives continue to import cleanly as General books
+
+## 0.20.0 - 2026-08-29 15:25 UTC
+- Search 2.0: search results now show the actual matching text in context, with the matched term highlighted, instead of just a chapter name -- every occurrence (not just each chapter) is now its own result, so a term appearing six times in one chapter shows as six results
+- Clicking a content or Notes search result now opens the chapter and jumps straight to that exact occurrence, temporarily highlighting it in the editor (or selecting it in Notes, expanding the Notes panel if needed) -- without touching saved content, autosave, version history, Undo/Redo, word counts, or WPM
+- Search now supports Workspace, Book, and Folder scope (in addition to searching titles, content, and Notes as before), selectable from the Search page itself alongside the search box, with results paginated so a broad search like "the" stays fast and usable
+- Search matching is now a literal, case-insensitive substring match rather than relying on English full-text search -- stop words ("the"), punctuation, contractions, and regex-special characters are all reliably searchable now
+- Search result counts now distinguish "matches" from "chapters" (e.g. "17 matches in 6 chapters") instead of conflating the two
+
+## 0.19.0 - 2026-08-29 14:33 UTC
+- Undo/Redo (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl+Y, and the toolbar buttons) now works reliably for every editor operation, including bulleted/numbered lists, checklists, indenting/outdenting, and markdown shortcuts -- these previously bypassed the browser's native undo history and could leave it out of sync. The editor now has one coherent history for every kind of edit, correctly grouping fast typing into single steps, invalidating stale Redo after new edits, and restoring caret position, autosave, and version history the same as before
+- Added Words Deleted tracking: genuinely typed/composed words removed via Backspace/Delete are now counted separately from words typed. "Words written" (Workspace/Book/Folder/Chapter Stats, contributor tables, and chapter velocity) now shows net typed writing (typed minus deleted) instead of gross typed words; a new "Words deleted" stat sits alongside it. Total words, Words pasted, WPM, and goal/streak progress are unaffected
+- Average WPM now requires a meaningful sample -- at least 25 genuinely typed words and 60 seconds of active writing time -- before it's calculated, on every surface (editor footer, Stats pages, contributor tables). The editor footer no longer shows a premature "Avg WPM: --" before that data exists; it simply appears once there's enough to show
+- Fixed a real-world layout bug where the bottom of the page (most visibly the chapter status bar, and the end of long scrolled content) could end up hidden on tablet-sized browsers. The app's full-height layout now tracks the browser's actual visible viewport height directly instead of relying solely on CSS's `100dvh`, which can go stale after an in-app navigation or an address-bar show/hide on some tablet browsers
+
 ## 0.18.0 - 2026-08-24 19:48 UTC
 - Writing activity now distinguishes words genuinely typed from words pasted. Active writing time and average WPM only advance from real typing, word goals use the current user's typed contribution, and cumulative heartbeats recover safely from dropped or duplicated requests without double-counting concurrent updates
 - Chapters can now contain other chapters while keeping their own editable prose. The sidebar, drag/drop, permissions, sharing, search, exports, goals, completion, and tree operations understand the recursive structure, with fixed depth limits, cycle/cross-book protection, and atomic failed moves

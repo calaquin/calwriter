@@ -3,6 +3,26 @@ import { Link, useBlocker } from 'react-router-dom'
 import { useSettings, useUpdateSettings, useChangePassword } from '../api/hooks'
 import { useAuth } from '../context/AuthContext'
 import { ApiError } from '../api/client'
+import type { JournalDateFormat, JournalTimeFormat } from '../api/types'
+
+// P1.1A: option label shows the rendered example (matching the exact
+// backend output for 2026-08-29 -- see services.format_journal_date), never
+// the raw format id -- users shouldn't have to interpret "day_long_month_year".
+const JOURNAL_DATE_FORMAT_OPTIONS: { value: JournalDateFormat; label: string }[] = [
+  { value: 'long_month_day_year', label: 'August 29, 2026' },
+  { value: 'short_month_day_year', label: 'Aug 29, 2026' },
+  { value: 'day_long_month_year', label: '29 August 2026' },
+  { value: 'day_short_month_year', label: '29 Aug 2026' },
+  { value: 'us_numeric', label: '08/29/2026' },
+  { value: 'day_first_numeric', label: '29/08/2026' },
+  { value: 'iso', label: '2026-08-29' },
+  { value: 'weekday_long', label: 'Saturday, August 29, 2026' },
+]
+
+const JOURNAL_TIME_FORMAT_OPTIONS: { value: JournalTimeFormat; label: string }[] = [
+  { value: '12_hour', label: '10:42 AM' },
+  { value: '24_hour', label: '22:42' },
+]
 
 const DEFAULTS = {
   darkMode: false,
@@ -151,106 +171,110 @@ export default function SettingsPage() {
       </header>
 
       <div className="settings-layout">
-        <section className="settings-panel appearance-panel">
-          <div className="settings-panel-header">
-            <div>
-              <h2>Appearance</h2>
-              <p>Choose how CalWriter looks for your account.</p>
+        <div className="settings-column">
+          <section className="settings-panel appearance-panel">
+            <div className="settings-panel-header">
+              <div>
+                <h2>Appearance</h2>
+                <p>Choose how CalWriter looks for your account.</p>
+              </div>
             </div>
-          </div>
 
-          <form onSubmit={handleSave}>
-            <label className="setting-toggle-row">
-              <span>
-                <strong>Color mode</strong>
-                <small>Switch between your separately saved light and dark palettes.</small>
-              </span>
-              <span className="setting-mode-switch">
-                <span className={!form.darkMode ? 'active' : undefined}>Light</span>
-                <span className="setting-switch">
-                  <input
-                    type="checkbox"
-                    checked={form.darkMode}
-                    onChange={(e) => setForm({ ...form, darkMode: e.target.checked })}
-                    aria-label="Use dark mode"
-                  />
-                  <span className="setting-switch-track" aria-hidden="true" />
+            <form onSubmit={handleSave}>
+              <label className="setting-toggle-row">
+                <span>
+                  <strong>Color mode</strong>
+                  <small>Switch between your separately saved light and dark palettes.</small>
                 </span>
-                <span className={form.darkMode ? 'active' : undefined}>Dark</span>
-              </span>
-            </label>
+                <span className="setting-mode-switch">
+                  <span className={!form.darkMode ? 'active' : undefined}>Light</span>
+                  <span className="setting-switch">
+                    <input
+                      type="checkbox"
+                      checked={form.darkMode}
+                      onChange={(e) => setForm({ ...form, darkMode: e.target.checked })}
+                      aria-label="Use dark mode"
+                    />
+                    <span className="setting-switch-track" aria-hidden="true" />
+                  </span>
+                  <span className={form.darkMode ? 'active' : undefined}>Dark</span>
+                </span>
+              </label>
 
-            <div className="appearance-preview" aria-label="Appearance preview">
-              <div className="appearance-preview-label">Live preview</div>
-              <div className="appearance-preview-window">
-                <div className="appearance-preview-sidebar">
-                  <span className="appearance-preview-brand" />
-                  <span />
-                  <span />
-                  <span className="short" />
-                </div>
-                <div className="appearance-preview-main">
-                  <div className="appearance-preview-toolbar">
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                  <div className="appearance-preview-editor">
-                    <strong>Chapter preview</strong>
+              <div className="appearance-preview" aria-label="Appearance preview">
+                <div className="appearance-preview-label">Live preview</div>
+                <div className="appearance-preview-window">
+                  <div className="appearance-preview-sidebar">
+                    <span className="appearance-preview-brand" />
                     <span />
                     <span />
                     <span className="short" />
                   </div>
+                  <div className="appearance-preview-main">
+                    <div className="appearance-preview-toolbar">
+                      <span />
+                      <span />
+                      <span />
+                    </div>
+                    <div className="appearance-preview-editor">
+                      <strong>Chapter preview</strong>
+                      <span />
+                      <span />
+                      <span className="short" />
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="palette-heading">
-              <strong>{form.darkMode ? 'Dark' : 'Light'} palette</strong>
-              <small>Each mode keeps its own custom colors.</small>
-            </div>
-            <div className="color-settings-grid">
-              {COLOR_SETTINGS.map(([lightKey, darkKey, label, description]) => {
-                const key = form.darkMode ? darkKey : lightKey
-                return (
-                <label className="color-setting" key={lightKey}>
-                  <span className="color-setting-copy">
-                    <strong>{label}</strong>
-                    <small>{description}</small>
-                  </span>
-                  <span className="color-setting-control">
-                    <input
-                      type="color"
-                      value={form[key]}
-                      onChange={(e) => setForm({ ...form, [key]: e.target.value })}
-                      aria-label={`${label} color`}
-                    />
-                    <code>{(form[key] ?? DEFAULTS[key]).toUpperCase()}</code>
-                  </span>
-                </label>
-                )
-              })}
-            </div>
-
-            {appearanceMessage && (
-              <div className={`settings-message ${appearanceMessage.type}`} role="status">
-                {appearanceMessage.text}
+              <div className="palette-heading">
+                <strong>{form.darkMode ? 'Dark' : 'Light'} palette</strong>
+                <small>Each mode keeps its own custom colors.</small>
               </div>
-            )}
+              <div className="color-settings-grid">
+                {COLOR_SETTINGS.map(([lightKey, darkKey, label, description]) => {
+                  const key = form.darkMode ? darkKey : lightKey
+                  return (
+                    <label className="color-setting" key={lightKey}>
+                      <span className="color-setting-copy">
+                        <strong>{label}</strong>
+                        <small>{description}</small>
+                      </span>
+                      <span className="color-setting-control">
+                        <input
+                          type="color"
+                          value={form[key]}
+                          onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                          aria-label={`${label} color`}
+                        />
+                        <code>{(form[key] ?? DEFAULTS[key]).toUpperCase()}</code>
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
 
-            <div className="settings-form-actions">
-              <button className="settings-primary-action" type="submit" disabled={update.isPending}>
-                {update.isPending ? 'Saving…' : 'Save appearance'}
-              </button>
-              <button className="settings-secondary-action" type="button" onClick={handleReset} disabled={update.isPending}>
-                Restore defaults
-              </button>
-            </div>
-          </form>
-        </section>
+              {appearanceMessage && (
+                <div className={`settings-message ${appearanceMessage.type}`} role="status">
+                  {appearanceMessage.text}
+                </div>
+              )}
+
+              <div className="settings-form-actions">
+                <button className="settings-primary-action" type="submit" disabled={update.isPending}>
+                  {update.isPending ? 'Saving…' : 'Save appearance'}
+                </button>
+                <button className="settings-secondary-action" type="button" onClick={handleReset} disabled={update.isPending}>
+                  Restore defaults
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <EditorStatsPanel />
+          <JournalFormattingPanel />
+        </div>
 
         <div className="settings-column">
-          <EditorStatsPanel />
           <AccountPanel />
           <TimezonePanel />
           <ChangePasswordForm />
@@ -327,6 +351,57 @@ function EditorStatsPanel() {
           />
           <span className="setting-switch-track" aria-hidden="true" />
         </span>
+      </label>
+    </section>
+  )
+}
+
+// P1.1A. A shared Journal always uses the *Book owner's* saved preferences
+// here (never the requesting Editor's) -- same authoritative-owner rule as
+// timezone (see TimezonePanel) -- so this panel only ever affects Journals
+// this account owns.
+function JournalFormattingPanel() {
+  const { data: settings } = useSettings()
+  const update = useUpdateSettings()
+
+  if (!settings) return null
+
+  return (
+    <section className="settings-panel journal-formatting-panel">
+      <div className="settings-panel-header">
+        <div>
+          <h2>Journal</h2>
+          <p>
+            These formats are used for newly created Journal entries and timestamps. Existing Journal names and text
+            are not changed.
+          </p>
+        </div>
+      </div>
+      <label className="journal-format-select">
+        <span>Journal date format</span>
+        <select
+          value={settings.journalDateFormat}
+          onChange={(e) => update.mutate({ journalDateFormat: e.target.value as JournalDateFormat })}
+        >
+          {JOURNAL_DATE_FORMAT_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="journal-format-select">
+        <span>Journal time format</span>
+        <select
+          value={settings.journalTimeFormat}
+          onChange={(e) => update.mutate({ journalTimeFormat: e.target.value as JournalTimeFormat })}
+        >
+          {JOURNAL_TIME_FORMAT_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
       </label>
     </section>
   )

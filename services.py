@@ -2,6 +2,7 @@
 import calendar
 import datetime
 import json
+import re
 import uuid
 import zipfile
 from io import BytesIO
@@ -20,7 +21,7 @@ from extensions import db
 from models import User, UserSettings, Folder, Chapter, ChapterVersion, ChapterWritingActivity, Goal, GoalType, GoalPeriodHistory
 from permissions import accessible_book_ids
 
-VERSION = "0.18.0"
+VERSION = "0.21.1"
 
 CHAPTER_VERSION_MIN_INTERVAL = datetime.timedelta(minutes=5)
 CHAPTER_VERSION_RETENTION = 50
@@ -36,6 +37,38 @@ MAX_HEARTBEAT_ELAPSED = datetime.timedelta(seconds=60)
 # Days without writing activity before an incomplete chapter is surfaced as
 # "stale" on its folder's stats page.
 STALE_CHAPTER_DAYS = 14
+
+# P1.2 Book Types -- metadata (Folder.book_type) layered on the existing
+# Book/Folder/Chapter structure, never a separate model per type.
+BOOK_TYPES = ('general', 'novel', 'journal', 'documentation')
+
+# WPM from a handful of words or a few seconds of activity is noise, not a
+# meaningful rate -- both thresholds must be met before a WPM figure is
+# calculated at all (see calculate_wpm). Centralized here, the one logical
+# home for both the single-user and per-contributor WPM call sites, rather
+# than letting each surface re-derive its own cutoff.
+MIN_WPM_TYPED_WORDS = 25
+MIN_WPM_ACTIVE_SECONDS = 60
+
+
+def calculate_wpm(words_typed: int, active_seconds: int) -> float | None:
+    """The one WPM calculation every surface (single-user and per-contributor
+    alike) shares. None below MIN_WPM_TYPED_WORDS/MIN_WPM_ACTIVE_SECONDS --
+    both thresholds must be met -- rather than a misleadingly precise figure
+    from a tiny sample. Deliberately keeps using gross `words_typed`, never
+    net of words_deleted: WPM measures genuine typing activity, not net
+    manuscript growth, and pasted words are never included in words_typed to
+    begin with (see ChapterWritingActivity's docstring)."""
+    if words_typed < MIN_WPM_TYPED_WORDS or active_seconds < MIN_WPM_ACTIVE_SECONDS:
+        return None
+    return round(words_typed / (active_seconds / 60), 1)
+
+
+def words_written_from(words_typed: int, words_deleted: int) -> int:
+    """The "Words written" stat shown everywhere in the UI: net genuine
+    typing after genuine deletion, never negative. Derived on read, not a
+    stored column -- see ChapterWritingActivity.words_deleted's docstring."""
+    return max(words_typed - words_deleted, 0)
 
 
 def timezone_info(timezone_name: str | None) -> ZoneInfo:
@@ -191,6 +224,123 @@ def html_to_text(html: str) -> str:
         if text:
             parts.append(text)
     return "\n".join(parts)
+
+
+# Search 2.0 (P1.1) -----------------------------------------------------
+#
+# html_to_search_text is deliberately a *different* flattening than
+# html_to_text above: html_to_text injects bullet/number/checkbox markers
+# for export/WPM word-counting, which are display conventions a user isn't
+# literally searching for and would otherwise make an occurrence's offset
+# meaningless relative to what's actually on screen. Block-level tags (and
+# <br>) become a plain "\n" boundary here instead, and inline formatting
+# tags contribute no boundary at all, so "<strong>Talak</strong>tei" stays
+# one contiguous, searchable "Talaktei" -- see the frontend's matching
+# canonicalSearchText (utils/searchText.ts), which MUST walk the live
+# editor DOM with the exact same block/inline rules for a server-found
+# occurrence offset to resolve to the right place client-side.
+_SEARCH_BLOCK_TAGS = {"p", "div", "li", "ul", "ol", "hr"}
+
+
+def html_to_search_text(html: str) -> str:
+    """Canonical searchable plain-text view of Chapter content HTML for
+    Search 2.0 occurrence matching. Never used for export or word counts --
+    see html_to_text for that. Does not alter/re-save the stored HTML."""
+    soup = BeautifulSoup(html, "html.parser")
+
+    def walk(node) -> str:
+        if isinstance(node, str):
+            return str(node)
+        if node.name == "br":
+            return "\n"
+        if node.name == "img":
+            return ""
+        text = "".join(walk(c) for c in node.children)
+        return text + "\n" if node.name in _SEARCH_BLOCK_TAGS else text
+
+    return "".join(walk(c) for c in soup.contents)
+
+
+def find_literal_occurrences(haystack: str, needle: str) -> list[tuple[int, int]]:
+    """Case-insensitive, literal (not user-facing regex) substring match
+    offsets in `haystack`, left to right, non-overlapping. Matching happens
+    directly against the original (not lower-cased) string via a
+    re.escape'd, re.IGNORECASE pattern -- not haystack.lower().find(...) --
+    specifically so Unicode case-folding that changes a character's length
+    (rare, but real: e.g. 'İ'.lower() in some locales) can never desync a
+    match span from the original text's actual offsets. re.escape makes any
+    query safe to compile, including regex-special characters like
+    `(`, `[`, `.`, `*`."""
+    if not needle:
+        return []
+    pattern = re.compile(re.escape(needle), re.IGNORECASE)
+    return [(m.start(), m.end()) for m in pattern.finditer(haystack)]
+
+
+SEARCH_SNIPPET_CONTEXT_CHARS = 90
+
+
+def _normalize_snippet_whitespace(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def build_search_snippet(text: str, start: int, end: int, *, context: int = SEARCH_SNIPPET_CONTEXT_CHARS) -> dict:
+    """Display-only context window around one match -- never touches the
+    underlying text/offsets used for matching or navigation. Trims to a
+    nearby word boundary when one exists within the window (a run-on word
+    longer than the whole window is left as-is, per "when practical"), and
+    collapses whitespace/newline runs so a snippet spanning a paragraph
+    break still reads as one clean line."""
+    window_start = max(0, start - context)
+    window_end = min(len(text), end + context)
+    before_raw = text[window_start:start]
+    after_raw = text[end:window_end]
+
+    leading_ellipsis = window_start > 0
+    trailing_ellipsis = window_end < len(text)
+
+    if leading_ellipsis:
+        m = re.search(r"\s", before_raw)
+        if m:
+            before_raw = before_raw[m.end():]
+    if trailing_ellipsis:
+        ws_matches = list(re.finditer(r"\s", after_raw))
+        if ws_matches:
+            after_raw = after_raw[:ws_matches[-1].start()]
+
+    return {
+        "before": _normalize_snippet_whitespace(before_raw),
+        "match": text[start:end],
+        "after": _normalize_snippet_whitespace(after_raw),
+        "leadingEllipsis": leading_ellipsis,
+        "trailingEllipsis": trailing_ellipsis,
+    }
+
+
+def search_chapter_matches(chapter: Chapter, query: str) -> list[dict]:
+    """Every literal match in one chapter's title, content, and notes, in
+    title -> content (document order) -> notes (notes order), each carrying
+    enough to build an API match row: source, a source-local zero-based
+    occurrenceIndex (None for title, which is always at most one result),
+    and the offsets plus canonical text they were found in (for snippet
+    generation by the caller, which also batches Book metadata -- kept out
+    of this function to avoid a query per occurrence)."""
+    matches = []
+
+    title_hits = find_literal_occurrences(chapter.name, query)
+    if title_hits:
+        start, end = title_hits[0]
+        matches.append({"source": "title", "occurrenceIndex": None, "startOffset": start, "endOffset": end, "text": chapter.name})
+
+    content_text = html_to_search_text(chapter.content_html)
+    for i, (start, end) in enumerate(find_literal_occurrences(content_text, query)):
+        matches.append({"source": "content", "occurrenceIndex": i, "startOffset": start, "endOffset": end, "text": content_text})
+
+    notes_text = chapter.notes_text or ""
+    for i, (start, end) in enumerate(find_literal_occurrences(notes_text, query)):
+        matches.append({"source": "notes", "occurrenceIndex": i, "startOffset": start, "endOffset": end, "text": notes_text})
+
+    return matches
 
 
 _CSS_SANITIZER = CSSSanitizer(allowed_css_properties=["text-indent", "text-align"])
@@ -781,10 +931,11 @@ def writing_activity_totals(
     """
     chapter_ids = list(chapter_ids)
     if not chapter_ids:
-        return {'wordsTyped': 0, 'wordsPasted': 0, 'activeSeconds': 0}
+        return {'wordsTyped': 0, 'wordsPasted': 0, 'wordsDeleted': 0, 'wordsWritten': 0, 'activeSeconds': 0}
     query = db.session.query(
         db.func.coalesce(db.func.sum(ChapterWritingActivity.words_typed), 0),
         db.func.coalesce(db.func.sum(ChapterWritingActivity.words_pasted), 0),
+        db.func.coalesce(db.func.sum(ChapterWritingActivity.words_deleted), 0),
         db.func.coalesce(db.func.sum(ChapterWritingActivity.active_seconds), 0),
     ).filter(ChapterWritingActivity.chapter_id.in_(chapter_ids))
     if user_id is not None:
@@ -793,8 +944,16 @@ def writing_activity_totals(
         query = query.filter(ChapterWritingActivity.date >= start_date)
     if end_date is not None:
         query = query.filter(ChapterWritingActivity.date <= end_date)
-    typed, pasted, active = query.one()
-    return {'wordsTyped': int(typed), 'wordsPasted': int(pasted), 'activeSeconds': int(active)}
+    typed, pasted, deleted, active = query.one()
+    typed = int(typed)
+    deleted = int(deleted)
+    return {
+        'wordsTyped': typed,
+        'wordsPasted': int(pasted),
+        'wordsDeleted': deleted,
+        'wordsWritten': words_written_from(typed, deleted),
+        'activeSeconds': int(active),
+    }
 
 
 def writing_activity_contributions(chapter_ids) -> list[dict]:
@@ -815,6 +974,7 @@ def writing_activity_contributions(chapter_ids) -> list[dict]:
             User.username,
             db.func.coalesce(db.func.sum(ChapterWritingActivity.words_typed), 0),
             db.func.coalesce(db.func.sum(ChapterWritingActivity.words_pasted), 0),
+            db.func.coalesce(db.func.sum(ChapterWritingActivity.words_deleted), 0),
             db.func.coalesce(db.func.sum(ChapterWritingActivity.active_seconds), 0),
         )
         .join(User, User.id == ChapterWritingActivity.user_id)
@@ -824,17 +984,20 @@ def writing_activity_contributions(chapter_ids) -> list[dict]:
         .all()
     )
     contributions = []
-    for user_id, username, typed, pasted, active in rows:
+    for user_id, username, typed, pasted, deleted, active in rows:
         typed = int(typed)
         pasted = int(pasted)
+        deleted = int(deleted)
         active = int(active)
         contributions.append({
             'userId': user_id,
             'username': username,
             'wordsTyped': typed,
             'wordsPasted': pasted,
+            'wordsDeleted': deleted,
+            'wordsWritten': words_written_from(typed, deleted),
             'activeSeconds': active,
-            'wpm': round(typed / (active / 60), 1) if active > 0 else None,
+            'wpm': calculate_wpm(typed, active),
         })
     return contributions
 
@@ -865,6 +1028,7 @@ def record_writing_activity(
     elapsed_seconds: float,
     typed_words_delta: int,
     pasted_words_delta: int,
+    deleted_words_delta: int = 0,
     *,
     occurred_at: datetime.datetime | None = None,
 ) -> None:
@@ -875,11 +1039,15 @@ def record_writing_activity(
     interval (see api.api_heartbeat_chapter_presence) -- a paste-only
     interval still credits `pasted_words_delta` but never active_seconds,
     which is what keeps WPM's active-time denominator immune to paste.
+    `deleted_words_delta` (P0.11) is genuine keyboard/composition words
+    removed this interval -- like typed/pasted, it's still credited even on
+    an interval with 0 elapsed active time (e.g. hadTypingInput false but a
+    dropped/duplicated heartbeat catching up a nonzero cumulative delta).
     Uses a real Postgres upsert (ON CONFLICT DO UPDATE), so incrementing the
     hourly bucket is atomic as well. It deliberately does not commit: the
     caller holds the matching ChapterPresence row lock and commits presence
     counter advancement plus this activity update together."""
-    if elapsed_seconds <= 0 and typed_words_delta <= 0 and pasted_words_delta <= 0:
+    if elapsed_seconds <= 0 and typed_words_delta <= 0 and pasted_words_delta <= 0 and deleted_words_delta <= 0:
         return
     user = db.session.get(User, user_id)
     local_now = user_local_datetime(user, occurred_at)
@@ -891,6 +1059,7 @@ def record_writing_activity(
         active_seconds=int(elapsed_seconds),
         words_typed=typed_words_delta,
         words_pasted=pasted_words_delta,
+        words_deleted=deleted_words_delta,
     )
     stmt = stmt.on_conflict_do_update(
         index_elements=[
@@ -903,6 +1072,7 @@ def record_writing_activity(
             "active_seconds": ChapterWritingActivity.active_seconds + stmt.excluded.active_seconds,
             "words_typed": ChapterWritingActivity.words_typed + stmt.excluded.words_typed,
             "words_pasted": ChapterWritingActivity.words_pasted + stmt.excluded.words_pasted,
+            "words_deleted": ChapterWritingActivity.words_deleted + stmt.excluded.words_deleted,
         },
     )
     db.session.execute(stmt)
@@ -1088,11 +1258,19 @@ def snapshot_chapter_version(chapter: Chapter, *, force: bool = False) -> None:
         ChapterVersion.query.filter(ChapterVersion.id.in_(stale_ids)).delete(synchronize_session=False)
 
 
-def create_book(name: str, owner_id: uuid.UUID, description: str = '', author: str = '', color: str = '') -> Folder:
+def create_book(
+    name: str, owner_id: uuid.UUID, description: str = '', author: str = '', color: str = '',
+    book_type: str = 'general',
+) -> Folder:
     """Insert a new top-level book. book_id is self-referential (NOT NULL FK to
     folders.id), so generate the id client-side and insert id == book_id
     together in one statement -- Postgres checks FK constraints post-statement,
-    so a row referencing itself in a single INSERT is valid."""
+    so a row referencing itself in a single INSERT is valid.
+
+    `book_type` defaults to 'general' -- the safe default for direct/plain
+    creation (see api_create_book); the interactive New Book wizard passes
+    'novel' explicitly to preserve its existing default. Callers are
+    expected to have already validated against BOOK_TYPES."""
     new_id = uuid.uuid4()
     folder = Folder(
         id=new_id,
@@ -1103,10 +1281,145 @@ def create_book(name: str, owner_id: uuid.UUID, description: str = '', author: s
         description=description,
         author=author,
         color=color,
+        book_type=book_type,
     )
     db.session.add(folder)
     db.session.flush()
     return folder
+
+
+# P1.1A: stable format IDs only -- never an arbitrary user-supplied string.
+# Kept in sync with users.chk_users_journal_date_format /
+# chk_users_journal_time_format (see the migration and models.User).
+JOURNAL_DATE_FORMATS = (
+    'long_month_day_year', 'short_month_day_year', 'day_long_month_year', 'day_short_month_year',
+    'us_numeric', 'day_first_numeric', 'iso', 'weekday_long',
+)
+JOURNAL_TIME_FORMATS = ('12_hour', '24_hour')
+DEFAULT_JOURNAL_DATE_FORMAT = 'long_month_day_year'
+DEFAULT_JOURNAL_TIME_FORMAT = '12_hour'
+
+
+def format_journal_date(date: datetime.date, format_id: str) -> str:
+    """Deterministic, English-only formatting for a Journal day Chapter's
+    *default* name (see journal_write_today) -- presentation only, never
+    touches the stored journal_date. `date` is already the resolved local
+    Journal day; this never infers or re-derives it. An unrecognized
+    format_id (never possible for a value that passed the User check
+    constraint, but defensive) falls back to the default rather than
+    raising, since a bad id here would otherwise block Write Today
+    entirely."""
+    if format_id not in JOURNAL_DATE_FORMATS:
+        format_id = DEFAULT_JOURNAL_DATE_FORMAT
+    month_name = calendar.month_name[date.month]
+    month_abbr = calendar.month_abbr[date.month]
+    if format_id == 'long_month_day_year':
+        return f"{month_name} {date.day}, {date.year}"
+    if format_id == 'short_month_day_year':
+        return f"{month_abbr} {date.day}, {date.year}"
+    if format_id == 'day_long_month_year':
+        return f"{date.day} {month_name} {date.year}"
+    if format_id == 'day_short_month_year':
+        return f"{date.day} {month_abbr} {date.year}"
+    if format_id == 'us_numeric':
+        return f"{date.month:02d}/{date.day:02d}/{date.year}"
+    if format_id == 'day_first_numeric':
+        return f"{date.day:02d}/{date.month:02d}/{date.year}"
+    if format_id == 'iso':
+        return date.isoformat()
+    # weekday_long -- date.weekday() (0=Monday) matches calendar.day_name's
+    # own indexing directly, no conversion needed.
+    return f"{calendar.day_name[date.weekday()]}, {month_name} {date.day}, {date.year}"
+
+
+def format_journal_time(instant: datetime.datetime, timezone_name: str, format_id: str) -> str:
+    """Deterministic time-of-day label for a Write Today timestamp, in
+    `timezone_name` (the Book owner's IANA zone -- see journal_write_today),
+    never including seconds or the date itself (the Journal Chapter already
+    represents the day). Presentation only, computed fresh every call --
+    never stored, and never rewrites a previously inserted timestamp."""
+    if format_id not in JOURNAL_TIME_FORMATS:
+        format_id = DEFAULT_JOURNAL_TIME_FORMAT
+    local = instant.astimezone(timezone_info(timezone_name))
+    if format_id == '24_hour':
+        return f"{local.hour:02d}:{local.minute:02d}"
+    hour_12 = local.hour % 12 or 12
+    period = 'AM' if local.hour < 12 else 'PM'
+    return f"{hour_12}:{local.minute:02d} {period}"
+
+
+def journal_write_today(book: Folder) -> tuple[Chapter, bool]:
+    """Idempotent "Write Today" resolution for a Journal Book (P1.2).
+
+    "Today" is always the Book *owner's* configured local date (see
+    user_local_today), never the requesting collaborator's -- a shared
+    Journal has exactly one definition of today regardless of which Editor
+    clicks. Falls back to UTC the same safe way every other calendar-aware
+    endpoint does if the owner's stored timezone is missing/invalid.
+
+    Every step searches the *entire* Book by metadata (journal_date /
+    journal_year+journal_month), never by name or current parent -- an
+    existing year/month Folder or day Chapter is reused exactly where it
+    currently lives, never renamed or moved back, so user reorganization
+    (renaming "August" to "Summer", moving a day Chapter elsewhere) stays
+    permanently safe. Only ever creates what's missing.
+
+    Locks the Book for the duration (released at transaction end) so two
+    concurrent Write Today requests can't each decide independently that no
+    year/month/day exists yet and both try to create one -- the partial
+    unique indexes on Folder/Chapter remain the final backstop, but this is
+    what keeps that backstop from ever actually firing in practice. Does
+    NOT commit; the caller commits once, so a failure partway through
+    (year created, month creation fails) leaves nothing behind rather than
+    a half-created hierarchy.
+
+    Returns (chapter, created) -- created is False when today's Chapter
+    already existed and nothing was made."""
+    lock_books_for_hierarchy_change(book.id)
+    owner = db.session.get(User, book.owner_id)
+    today = user_local_today(owner)
+
+    existing = Chapter.query.filter_by(book_id=book.id, journal_date=today).first()
+    if existing is not None:
+        return existing, False
+
+    year_folder = Folder.query.filter_by(
+        book_id=book.id, journal_year=today.year, journal_month=None,
+    ).first()
+    if year_folder is None:
+        year_folder = Folder(
+            parent_id=book.id, book_id=book.id, name=str(today.year),
+            journal_year=today.year, journal_month=None,
+            position=next_folder_position(book.id),
+        )
+        db.session.add(year_folder)
+        db.session.flush()
+
+    month_folder = Folder.query.filter_by(
+        book_id=book.id, journal_year=today.year, journal_month=today.month,
+    ).first()
+    if month_folder is None:
+        month_folder = Folder(
+            parent_id=year_folder.id, book_id=book.id, name=calendar.month_name[today.month],
+            journal_year=today.year, journal_month=today.month,
+            position=next_folder_position(year_folder.id),
+        )
+        db.session.add(month_folder)
+        db.session.flush()
+
+    day_chapter = Chapter(
+        folder_id=month_folder.id, book_id=book.id,
+        # P1.1A: the owner's *current* date-format preference -- applied
+        # only at creation time, as an initial display name (see
+        # format_journal_date). A later preference change never renames
+        # this or any other already-existing day Chapter.
+        name=format_journal_date(today, owner.journal_date_format if owner else DEFAULT_JOURNAL_DATE_FORMAT),
+        journal_date=today,
+        position=next_chapter_position(folder_id=month_folder.id),
+    )
+    db.session.add(day_chapter)
+    db.session.flush()
+    return day_chapter, True
 
 
 def ordered_accessible_books() -> list:
@@ -1134,6 +1447,10 @@ def serialize_chapter(chapter: Chapter) -> dict:
         'notes_text': chapter.notes_text,
         'completed_at': chapter.completed_at.isoformat() if chapter.completed_at else None,
         'show_book_color': chapter.show_book_color,
+        # P1.2 (v4): the Journal day this Chapter represents, if any --
+        # authoritative identity independent of name/position, see
+        # Chapter.journal_date's docstring.
+        'journal_date': chapter.journal_date.isoformat() if chapter.journal_date else None,
         'children': [serialize_chapter(c) for c in children],
     }
 
@@ -1148,6 +1465,14 @@ def serialize_folder(folder: Folder) -> dict:
         'author': folder.author,
         'color': folder.color,
         'show_book_color': folder.show_book_color,
+        # P1.2 (v4): book_type is only ever non-null on the Book/root row
+        # this method is called with at the top of the tree -- every nested
+        # sub-folder's own book_type is always None, so this needs no
+        # depth-aware branching. journal_year/journal_month are likewise
+        # None on an ordinary Folder.
+        'book_type': folder.book_type,
+        'journal_year': folder.journal_year,
+        'journal_month': folder.journal_month,
         'folders': [serialize_folder(s) for s in subfolders],
         'chapters': [serialize_chapter(c) for c in chapters],
     }
@@ -1156,15 +1481,16 @@ def serialize_folder(folder: Folder) -> dict:
 def export_books_zip() -> BytesIO:
     """Portable book archive for the current user's accessible library.
 
-    Version 3 preserves book/folder/chapter structure and user-authored
-    document metadata, including stable source ids used solely to remap
-    internal references on import. Accounts, shares, goals, version history,
-    presence, and writing telemetry deliberately remain outside this
-    application-level portability format; full-state recovery uses pg_dump.
+    Version 4 preserves book/folder/chapter structure, user-authored
+    document metadata, and P1.2 Book Type/Journal metadata, including
+    stable source ids used solely to remap internal references on import.
+    Accounts, shares, goals, version history, presence, and writing
+    telemetry deliberately remain outside this application-level
+    portability format; full-state recovery uses pg_dump.
     """
     books = ordered_accessible_books()
     payload = {
-        'version': '3.0',
+        'version': '4.0',
         'exported_at': datetime.datetime.utcnow().isoformat(),
         'exported_by': current_user.username,
         'books': [serialize_folder(b) for b in books],
@@ -1198,6 +1524,7 @@ def deserialize_chapter(
         position=position,
         completed_at=_archive_datetime(data.get('completed_at')),
         show_book_color=data.get('show_book_color', True),
+        journal_date=_archive_journal_date(data.get('journal_date')),
     )
     db.session.add(chapter)
     db.session.flush()
@@ -1226,6 +1553,8 @@ def deserialize_folder(
     id_map: dict[tuple[str, str], uuid.UUID],
     imported_chapters: list[Chapter],
 ) -> Folder:
+    year = _archive_journal_year(data.get('journal_year'))
+    month = _archive_journal_month(data.get('journal_month'), year)
     folder = Folder(
         parent_id=parent.id,
         book_id=book_id,
@@ -1235,6 +1564,8 @@ def deserialize_folder(
         color=data.get('color', ''),
         position=position,
         show_book_color=data.get('show_book_color', True),
+        journal_year=year,
+        journal_month=month,
     )
     db.session.add(folder)
     db.session.flush()
@@ -1289,31 +1620,86 @@ def _remap_internal_references(html: str, id_map: dict[tuple[str, str], uuid.UUI
     return sanitize_html(str(soup)) if changed else html
 
 
-def _validate_import_chapter_depth(data: dict, *, depth: int) -> None:
+def _archive_journal_date(value) -> datetime.date | None:
+    if value is None:
+        return None
+    try:
+        return datetime.date.fromisoformat(value)
+    except (TypeError, ValueError):
+        raise ValueError('Archive contains an invalid journal date')
+
+
+def _archive_journal_year(value) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError('Archive contains an invalid journal year')
+    return value
+
+
+def _archive_journal_month(value, year: int | None) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or not (1 <= value <= 12):
+        raise ValueError('Archive contains an invalid journal month')
+    if year is None:
+        raise ValueError('Archive contains a journal month without a journal year')
+    return value
+
+
+def _archive_book_type(value) -> str:
+    """Missing/older-archive (pre-v4) book_type defaults to 'general' --
+    never inferred from the book's name."""
+    if value is None:
+        return 'general'
+    if not isinstance(value, str) or value not in BOOK_TYPES:
+        raise ValueError('Archive contains an invalid book type')
+    return value
+
+
+def _validate_import_chapter_depth(data: dict, *, depth: int, seen_dates: set) -> None:
     if not isinstance(data, dict):
         raise ValueError('Archive contains an invalid chapter')
     if depth > MAX_CHAPTER_DEPTH:
         raise HierarchyError(f'Import contains chapters nested more than {MAX_CHAPTER_DEPTH + 1} levels deep')
     _validate_archive_resource(data, child_keys=('children',))
+    journal_date = _archive_journal_date(data.get('journal_date'))
+    if journal_date is not None:
+        # Mirrors uq_chapters_journal_date -- caught here (before any row
+        # exists) rather than as a bare IntegrityError partway through an
+        # otherwise-atomic import.
+        if journal_date in seen_dates:
+            raise ValueError('Archive contains duplicate Journal dates within one book')
+        seen_dates.add(journal_date)
     for child in data.get('children', []):
-        _validate_import_chapter_depth(child, depth=depth + 1)
+        _validate_import_chapter_depth(child, depth=depth + 1, seen_dates=seen_dates)
 
 
-def _validate_import_folder_depth(data: dict, *, depth: int) -> None:
+def _validate_import_folder_depth(data: dict, *, depth: int, seen_dates: set, seen_periods: set) -> None:
     """Walks an already-parsed export payload's folder/chapter trees and
     raises HierarchyError before any row is created if any book's nesting
     would exceed MAX_FOLDER_DEPTH/MAX_CHAPTER_DEPTH -- import is atomic
     (see import_books_zip: every book is validated before any is created),
-    so this has to happen up front rather than failing partway through."""
+    so this has to happen up front rather than failing partway through.
+    `seen_dates`/`seen_periods` are fresh per book (see import_books_zip):
+    duplicate Journal metadata is only ever a same-book concern, mirroring
+    the database invariants' own book_id-scoped uniqueness."""
     if not isinstance(data, dict):
         raise ValueError('Archive contains an invalid folder')
     if depth > MAX_FOLDER_DEPTH:
         raise HierarchyError(f'Import contains folders nested more than {MAX_FOLDER_DEPTH + 1} levels deep')
     _validate_archive_resource(data, child_keys=('folders', 'chapters'))
+    year = _archive_journal_year(data.get('journal_year'))
+    month = _archive_journal_month(data.get('journal_month'), year)
+    if year is not None:
+        period = (year, month)
+        if period in seen_periods:
+            raise ValueError('Archive contains duplicate Journal year/month organization within one book')
+        seen_periods.add(period)
     for chap in data.get('chapters', []):
-        _validate_import_chapter_depth(chap, depth=0)
+        _validate_import_chapter_depth(chap, depth=0, seen_dates=seen_dates)
     for sub in data.get('folders', []):
-        _validate_import_folder_depth(sub, depth=depth + 1)
+        _validate_import_folder_depth(sub, depth=depth + 1, seen_dates=seen_dates, seen_periods=seen_periods)
 
 
 def _validate_archive_resource(data: dict, *, child_keys: tuple[str, ...]) -> None:
@@ -1352,11 +1738,15 @@ def import_books_zip(file_storage, owner_id: uuid.UUID) -> int:
     if not isinstance(payload, dict) or not isinstance(payload.get('books', []), list):
         raise ValueError('Archive contents are invalid')
     books_data = payload.get('books', [])
-    # Validate every book's nesting depth before creating anything -- an
-    # import is all-or-nothing, matching "failed moves are atomic" applied
-    # to import (see _validate_import_folder_depth).
+    # Validate every book's nesting depth, Book Type, and Journal metadata
+    # (including within-book duplicate journal dates/periods) before
+    # creating anything -- an import is all-or-nothing, matching "failed
+    # moves are atomic" applied to import (see _validate_import_folder_depth).
+    # Fresh seen_dates/seen_periods per book: duplicates are only ever a
+    # same-book concern (mirrors the book_id-scoped database invariants).
     for book_data in books_data:
-        _validate_import_folder_depth(book_data, depth=0)
+        _archive_book_type(book_data.get('book_type'))
+        _validate_import_folder_depth(book_data, depth=0, seen_dates=set(), seen_periods=set())
     # Keep first-use settings creation in the same transaction as the book
     # rows. get_user_settings() commits a newly-created row immediately,
     # which would otherwise leave that row behind after a later import
@@ -1380,6 +1770,7 @@ def import_books_zip(file_storage, owner_id: uuid.UUID) -> int:
                 description=book_data.get('description', ''),
                 author=book_data.get('author', ''),
                 color=book_data.get('color', ''),
+                book_type=_archive_book_type(book_data.get('book_type')),
             )
             book.show_book_color = book_data.get('show_book_color', True)
             source_id = book_data.get('source_id')

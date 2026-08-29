@@ -5,6 +5,12 @@
     --sidebar-bg: #f0f0f0;
     --toolbar-bg: #ddd;
     --editor-bg: #fff;
+    /* Default -- the CSS dynamic-viewport-height unit itself -- until
+       useViewportHeightFix overwrites this with a px value derived from
+       window.innerHeight. See that hook for why raw 100dvh alone isn't
+       reliable enough on tablet browsers (stale after SPA route changes,
+       toolbar show/hide that doesn't fire a "real" resize in WebKit). */
+    --app-100dvh: 100dvh;
 }
 
 body {
@@ -12,7 +18,7 @@ body {
     line-height: 1.5;
     display: flex;
     height: 100vh;
-    height: 100dvh;
+    height: var(--app-100dvh);
     overflow: hidden;
     margin: 0;
     background: var(--bg-color);
@@ -43,7 +49,7 @@ body.dark {
     padding-bottom: calc(16px + env(safe-area-inset-bottom));
     overflow-y: auto;
     height: 100vh;
-    height: 100dvh;
+    height: var(--app-100dvh);
     box-shadow: 2px 0 4px rgba(0,0,0,0.1);
     box-sizing: border-box;
     transition: width 0.15s ease, min-width 0.15s ease, padding 0.15s ease;
@@ -82,7 +88,7 @@ body.dark {
         z-index: 60;
         width: min(85vw, 320px);
         height: 100vh;
-        height: 100dvh;
+        height: var(--app-100dvh);
         box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
     }
 }
@@ -3131,6 +3137,66 @@ body.dark .account-type-badge.admin {
 .wizard-extra-chip.active:hover {
     opacity: 0.86;
 }
+
+/* P1.2 Book Type selector -- New Book modal and Book Settings. */
+.book-type-selector {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.book-type-selector legend {
+    padding: 0;
+    font-size: 0.78rem;
+    font-weight: 650;
+}
+.book-type-selector-note {
+    margin: 0;
+    font-size: 0.78rem;
+    opacity: 0.65;
+    line-height: 1.4;
+}
+.book-type-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 8px;
+}
+.book-type-option {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: baseline;
+    column-gap: 8px;
+    row-gap: 2px;
+    padding: 10px 12px;
+    border: 1px solid rgba(127, 127, 127, 0.3);
+    border-radius: 8px;
+    cursor: pointer;
+}
+.book-type-option:hover {
+    background: rgba(127, 127, 127, 0.08);
+}
+.book-type-option.active {
+    border-color: var(--text-color);
+    background: rgba(127, 127, 127, 0.1);
+}
+.book-type-option input[type="radio"] {
+    grid-row: 1;
+    margin: 0;
+}
+.book-type-option-label {
+    grid-row: 1;
+    font-size: 0.85rem;
+    font-weight: 650;
+}
+.book-type-option-description {
+    grid-column: 2;
+    grid-row: 2;
+    font-size: 0.75rem;
+    opacity: 0.65;
+    line-height: 1.35;
+}
 .password-form {
     display: flex;
     flex-direction: column;
@@ -3165,6 +3231,37 @@ body.dark .account-type-badge.admin {
 .password-form label > small {
     font-size: 0.7rem;
     opacity: 0.58;
+}
+
+/* P1.1A Journal date/time format preferences (Settings page). */
+.journal-formatting-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.journal-format-select {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+.journal-format-select > span {
+    font-size: 0.78rem;
+    font-weight: 650;
+}
+.journal-format-select select {
+    width: 100%;
+    height: 38px;
+    padding: 7px 9px;
+    border: 1px solid rgba(127, 127, 127, 0.4);
+    border-radius: 5px;
+    box-sizing: border-box;
+    background: var(--bg-color);
+    color: var(--text-color);
+    font: inherit;
+}
+.journal-format-select select:focus {
+    outline: 2px solid rgba(88, 123, 190, 0.4);
+    outline-offset: 1px;
 }
 .settings-message {
     margin-top: 14px;
@@ -3382,7 +3479,7 @@ pre.changelog {
     font-size: 0.9em;
 }
 
-button, input[type="text"], input[type="color"], select, textarea {
+button, input[type="text"], input[type="password"], input[type="color"], select, textarea {
     border: 1px solid #ccc;
     border-radius: 4px;
     padding: 6px 8px;
@@ -3400,7 +3497,7 @@ button:hover {
     background: #eaeaea;
 }
 
-input[type="text"] {
+input[type="text"], input[type="password"] {
     max-width: 300px;
 }
 
@@ -3454,8 +3551,15 @@ input[type="text"] {
 }
 
 .login-box .sidebar-icon {
-    width: 48px;
-    height: 48px;
+    width: 88px;
+    height: 88px;
+}
+
+.login-box .version {
+    display: block;
+    margin: -0.5em 0 1em;
+    opacity: 0.5;
+    font-size: 0.85em;
 }
 
 .login-box form {
@@ -3464,6 +3568,10 @@ input[type="text"] {
     gap: 8px;
     align-items: center;
     margin-top: 1em;
+}
+
+.login-box form input {
+    width: 220px;
 }
 
 .link-button {
@@ -3479,4 +3587,156 @@ input[type="text"] {
 .link-button:hover {
     text-decoration: underline;
     background: none;
+}
+
+/* ============================== Search 2.0 (P1.1) ============================== */
+
+.search-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 10px;
+    margin-bottom: 18px;
+}
+.search-controls-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    opacity: 0.7;
+    flex: 1 1 260px;
+    /* A <select>'s intrinsic width follows its widest <option> text
+       ("Folder — Draft (Journeydrive)"), ignoring this flex item's own
+       shrunk size unless min-width is reset from the flex default of
+       auto -- otherwise it silently overflows/clips at narrow viewports. */
+    min-width: 0;
+}
+.search-controls-field input,
+.search-controls-field select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid rgba(127, 127, 127, 0.35);
+    border-radius: 6px;
+    background: var(--bg-color);
+    color: var(--text-color);
+    font: inherit;
+    font-size: 0.9rem;
+    box-sizing: border-box;
+}
+.search-controls-scope {
+    flex: 1 1 220px;
+}
+.search-controls-scope select {
+    white-space: pre;
+}
+.search-controls-submit {
+    flex: 0 0 auto;
+}
+
+.search-result-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.search-result {
+    border: 1px solid rgba(127, 127, 127, 0.2);
+    border-radius: 8px;
+    overflow: hidden;
+}
+.search-result-link {
+    display: block;
+    padding: 10px 14px;
+    color: var(--text-color);
+    text-decoration: none;
+}
+.search-result-link:hover {
+    background: rgba(127, 127, 127, 0.08);
+}
+.search-result-link:focus-visible {
+    outline: 2px solid rgba(88, 123, 190, 0.6);
+    outline-offset: -2px;
+}
+.search-result-heading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.search-result-chapter-name {
+    font-weight: 650;
+    font-size: 0.92rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+.search-result-source-badge {
+    flex-shrink: 0;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: rgba(127, 127, 127, 0.16);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    opacity: 0.75;
+}
+.search-result-book-name {
+    margin: 2px 0 6px 16px;
+    font-size: 0.75rem;
+    opacity: 0.55;
+}
+.search-result-snippet {
+    margin: 0 0 0 16px;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    opacity: 0.9;
+    overflow-wrap: anywhere;
+}
+.search-result-snippet mark {
+    background: rgba(230, 180, 20, 0.45);
+    color: inherit;
+    border-radius: 2px;
+    padding: 0 1px;
+}
+body.dark .search-result-snippet mark {
+    background: rgba(230, 180, 20, 0.32);
+}
+
+.search-pagination {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.search-stale-notice {
+    margin: 0 20px;
+    padding: 8px 14px;
+    border-radius: 6px;
+    background: rgba(179, 58, 58, 0.12);
+    color: #b33a3a;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+body.dark .search-stale-notice {
+    background: rgba(217, 120, 120, 0.16);
+    color: #e08a8a;
+}
+
+/* Search 2.0 jump-to-occurrence highlight -- see applySearchHighlight in
+   ChapterEditor.tsx (CSS Custom Highlight API; the Selection-API fallback
+   for browsers without it uses the platform's own ::selection styling
+   instead, which needs no CSS here). Visible against both the plain editor
+   background and a book-tinted one. */
+::highlight(calwriter-search-match) {
+    background-color: rgba(230, 180, 20, 0.55);
+    color: inherit;
+}
+body.dark ::highlight(calwriter-search-match) {
+    background-color: rgba(230, 180, 20, 0.4);
 }

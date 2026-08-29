@@ -26,6 +26,18 @@ from extensions import db
 
 class User(UserMixin, db.Model):
     __tablename__ = "users"
+    __table_args__ = (
+        # P1.1A: stable format IDs only, never an arbitrary user-supplied
+        # string -- see services.JOURNAL_DATE_FORMATS/JOURNAL_TIME_FORMATS,
+        # the single source of truth this must be kept in sync with.
+        CheckConstraint(
+            "journal_date_format IN ("
+            "'long_month_day_year', 'short_month_day_year', 'day_long_month_year', 'day_short_month_year', "
+            "'us_numeric', 'day_first_numeric', 'iso', 'weekday_long')",
+            name="chk_users_journal_date_format",
+        ),
+        CheckConstraint("journal_time_format IN ('12_hour', '24_hour')", name="chk_users_journal_time_format"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     username: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
@@ -36,6 +48,15 @@ class User(UserMixin, db.Model):
     # user's first post-migration login; server-side calendar logic safely
     # falls back to UTC during that brief window.
     timezone: Mapped[str | None] = mapped_column(String(64))
+    # P1.1A: user-level defaults for Journal day-Chapter names and Write
+    # Today timestamps -- account settings, not Book metadata (see
+    # services.format_journal_date/format_journal_time), and deliberately
+    # NOT part of .calwdb (a portable *Book* archive). For a shared
+    # Journal, the *Book owner's* row is what's read, exactly like
+    # timezone above -- an Editor's own preferences never apply to another
+    # owner's Journal generation.
+    journal_date_format: Mapped[str] = mapped_column(String(32), nullable=False, server_default='long_month_day_year')
+    journal_time_format: Mapped[str] = mapped_column(String(16), nullable=False, server_default='12_hour')
     created_at: Mapped["DateTime"] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -46,6 +67,30 @@ class Folder(db.Model):
     __table_args__ = (
         CheckConstraint("parent_id IS NOT NULL OR owner_id IS NOT NULL", name="chk_root_owner"),
         UniqueConstraint("parent_id", "name", name="uq_folders_parent_name"),
+        CheckConstraint(
+            "book_type IS NULL OR book_type IN ('general', 'novel', 'journal', 'documentation')",
+            name="chk_folders_book_type",
+        ),
+        CheckConstraint(
+            "journal_month IS NULL OR (journal_month >= 1 AND journal_month <= 12)",
+            name="chk_folders_journal_month_range",
+        ),
+        CheckConstraint(
+            "journal_month IS NULL OR journal_year IS NOT NULL",
+            name="chk_folders_journal_month_requires_year",
+        ),
+        # P1.2 Journal automation's own generated year/month Folders, keyed
+        # by this metadata rather than name/position -- see journal_year's
+        # docstring. Partial (WHERE ...IS NOT NULL): an ordinary Folder's
+        # NULL/NULL row never participates in either uniqueness check.
+        Index(
+            "uq_folders_journal_year", "book_id", "journal_year",
+            unique=True, postgresql_where=text("journal_year IS NOT NULL AND journal_month IS NULL"),
+        ),
+        Index(
+            "uq_folders_journal_year_month", "book_id", "journal_year", "journal_month",
+            unique=True, postgresql_where=text("journal_year IS NOT NULL AND journal_month IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
@@ -74,6 +119,24 @@ class Folder(db.Model):
     # the book root itself) opts that whole branch out, same AND-of-ancestors
     # semantics as chapter_effective_book_color in api.py.
     show_book_color: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # P1.2 Book Types. Set (to one of 'general'/'novel'/'journal'/
+    # 'documentation') only on a root/Book row; NULL on an ordinary
+    # sub-folder -- application logic (not a NOT NULL constraint, since a
+    # single books/folders table serves both) treats a root row's NULL as
+    # unmigrated/invalid, never as a valid fifth type. Metadata + optional
+    # behavior layered on the existing Folder, deliberately not a separate
+    # Journal/Novel/Documentation model -- see services.BOOK_TYPES.
+    book_type: Mapped[str | None] = mapped_column(String(32))
+    # P1.2 Journal automation's generated year/month Folders. These are
+    # identity markers the app uses to relocate its own generated
+    # structure, NOT layout enforcement: renaming or moving a Folder that
+    # carries this metadata never clears it, and the app must never rename/
+    # move a Folder back to "repair" it -- see journal_write_today's
+    # docstring. journal_year alone (journal_month NULL) marks a year
+    # Folder; both set marks a month Folder; both NULL (the common case) is
+    # an ordinary Folder that plays no part in Journal resolution.
+    journal_year: Mapped[int | None] = mapped_column(Integer)
+    journal_month: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped["DateTime"] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped["DateTime"] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -127,6 +190,10 @@ class Chapter(db.Model):
             name="chk_chapters_one_parent",
         ),
         Index("ix_chapters_search_tsv", "search_tsv", postgresql_using="gin"),
+        Index(
+            "uq_chapters_journal_date", "book_id", "journal_date",
+            unique=True, postgresql_where=text("journal_date IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
@@ -177,6 +244,13 @@ class Chapter(db.Model):
     # pruned down to the most recent 50 -- this column is the only accurate
     # "revision count" once a chapter has been snapshotted more than that.
     version_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # P1.2 Journal automation's day Chapters. The authoritative identity of
+    # "this is the Journal entry for 2026-08-29" -- independent of name,
+    # current Folder, or Book Type; a renamed/moved day Chapter is still
+    # found by journal_write_today via this column, never by name. NULL for
+    # every ordinary chapter. uq_chapters_journal_date (see __table_args__)
+    # is the "one Journal Chapter per calendar day per Book" invariant.
+    journal_date: Mapped["Date | None"] = mapped_column(Date)
     search_tsv: Mapped[str] = mapped_column(
         TSVECTOR,
         Computed(
@@ -244,6 +318,10 @@ class ChapterPresence(db.Model):
     # total is 0, not "unknown yet".
     last_typed_words: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_pasted_words: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Same idempotent-cumulative-heartbeat baseline role as last_typed_words/
+    # last_pasted_words, for the P0.11 deleted-words counter (see
+    # ChapterWritingActivity.words_deleted).
+    last_deleted_words: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     user = relationship("User")
 
@@ -266,7 +344,16 @@ class ChapterWritingActivity(db.Model):
     ignore the specific date). As of P0.6, `date` and `hour_of_day` are the
     writer's local IANA-timezone calendar bucket at heartbeat time. Earlier
     rows are retained unchanged because no raw event timestamp exists from
-    which to reconstruct their historical local bucket honestly."""
+    which to reconstruct their historical local bucket honestly.
+
+    words_deleted (P0.11) is genuine keyboard/composition words *removed* --
+    a positive cumulative count, not a per-word-provenance ledger (deleting
+    a pasted word still counts here; this is activity accounting, not
+    tagging every word in the document with an origin). "Words written"
+    everywhere in the UI/API is the derived `max(words_typed - words_deleted,
+    0)`, never a separate stored column -- see services.words_written_from.
+    WPM deliberately keeps using gross words_typed, unaffected by deletions:
+    it measures typing activity, not net manuscript growth."""
 
     __tablename__ = "chapter_writing_activity"
     __table_args__ = (
@@ -289,6 +376,7 @@ class ChapterWritingActivity(db.Model):
     active_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     words_typed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     words_pasted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    words_deleted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     user = relationship("User")
     chapter = relationship("Chapter")
