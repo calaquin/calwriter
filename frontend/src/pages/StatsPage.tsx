@@ -110,6 +110,7 @@ function ContributionStats({ activity }: { activity: ResourceActivityStats }) {
               <tr>
                 <th>Contributor</th>
                 <th>Words written</th>
+                <th>Words deleted</th>
                 <th>Words pasted</th>
                 <th>Active writing time</th>
                 <th>Average WPM</th>
@@ -119,7 +120,8 @@ function ContributionStats({ activity }: { activity: ResourceActivityStats }) {
               {activity.contributors.map((contributor) => (
                 <tr key={contributor.userId}>
                   <td>{contributor.username}{contributor.isCurrentUser ? ' (you)' : ''}</td>
-                  <td>{contributor.wordsTyped.toLocaleString()}</td>
+                  <td>{contributor.wordsWritten.toLocaleString()}</td>
+                  <td>{contributor.wordsDeleted.toLocaleString()}</td>
                   <td>{contributor.wordsPasted.toLocaleString()}</td>
                   <td>{formatDuration(contributor.activeSeconds)}</td>
                   <td>{formatWpm(contributor.wpm)}</td>
@@ -205,8 +207,12 @@ export default function StatsPage() {
                 <span className="stats-summary-label">Your average WPM</span>
               </div>
               <div className="stats-summary-tile">
-                <span className="stats-summary-value">{folderExtra.activity.mine.wordsTyped.toLocaleString()}</span>
+                <span className="stats-summary-value">{folderExtra.activity.mine.wordsWritten.toLocaleString()}</span>
                 <span className="stats-summary-label">Your words written</span>
+              </div>
+              <div className="stats-summary-tile">
+                <span className="stats-summary-value">{folderExtra.activity.mine.wordsDeleted.toLocaleString()}</span>
+                <span className="stats-summary-label">Your words deleted</span>
               </div>
               <div className="stats-summary-tile">
                 <span className="stats-summary-value">{folderExtra.activity.mine.wordsPasted.toLocaleString()}</span>
@@ -225,8 +231,12 @@ export default function StatsPage() {
                 <span className="stats-summary-label">Your average WPM</span>
               </div>
               <div className="stats-summary-tile">
-                <span className="stats-summary-value">{chapterExtra.activity.mine.wordsTyped.toLocaleString()}</span>
+                <span className="stats-summary-value">{chapterExtra.activity.mine.wordsWritten.toLocaleString()}</span>
                 <span className="stats-summary-label">Your words written</span>
+              </div>
+              <div className="stats-summary-tile">
+                <span className="stats-summary-value">{chapterExtra.activity.mine.wordsDeleted.toLocaleString()}</span>
+                <span className="stats-summary-label">Your words deleted</span>
               </div>
               <div className="stats-summary-tile">
                 <span className="stats-summary-value">{formatDuration(chapterExtra.activity.mine.activeSeconds)}</span>
@@ -259,8 +269,12 @@ export default function StatsPage() {
                 <span className="stats-summary-label">Your average WPM</span>
               </div>
               <div className="stats-summary-tile">
-                <span className="stats-summary-value">{workspace.wordsTyped.toLocaleString()}</span>
+                <span className="stats-summary-value">{workspace.wordsWritten.toLocaleString()}</span>
                 <span className="stats-summary-label">Your words written</span>
+              </div>
+              <div className="stats-summary-tile">
+                <span className="stats-summary-value">{workspace.wordsDeleted.toLocaleString()}</span>
+                <span className="stats-summary-label">Your words deleted</span>
               </div>
               <div className="stats-summary-tile">
                 <span className="stats-summary-value">{workspace.wordsPasted.toLocaleString()}</span>

@@ -3,6 +3,14 @@ import { Link, useParams } from 'react-router-dom'
 import { useBook, useUpdateBook } from '../api/hooks'
 import { ApiError } from '../api/client'
 import SharingSection from '../components/SharingSection'
+import type { BookType } from '../api/types'
+
+const BOOK_TYPE_OPTIONS: { value: BookType; label: string; description: string }[] = [
+  { value: 'novel', label: 'Novel', description: 'Long-form creative writing with chapters and planning folders.' },
+  { value: 'journal', label: 'Journal', description: 'Daily writing with one chapter per day, automatically organized by date.' },
+  { value: 'documentation', label: 'Documentation', description: 'Documentation and reference writing.' },
+  { value: 'general', label: 'General', description: 'A flexible book with no special behavior.' },
+]
 
 export default function BookSettingsPage() {
   const { folderId } = useParams()
@@ -15,6 +23,7 @@ export default function BookSettingsPage() {
   const [description, setDescription] = useState('')
   const [color, setColor] = useState('#dddddd')
   const [showBookColor, setShowBookColor] = useState(true)
+  const [bookType, setBookType] = useState<BookType>('general')
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => {
@@ -24,6 +33,7 @@ export default function BookSettingsPage() {
       setDescription(book.description)
       setColor(book.color || '#dddddd')
       setShowBookColor(book.showBookColor)
+      setBookType(book.bookType)
     }
   }, [book])
 
@@ -40,7 +50,7 @@ export default function BookSettingsPage() {
       return
     }
     try {
-      await update.mutateAsync({ name: trimmedName, author, description, color, showBookColor })
+      await update.mutateAsync({ name: trimmedName, author, description, color, showBookColor, bookType })
       setMessage({ type: 'success', text: 'Settings saved.' })
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof ApiError ? err.message : 'Failed to save settings' })
@@ -71,6 +81,28 @@ export default function BookSettingsPage() {
           </div>
         </div>
         <form className="book-settings-form" onSubmit={handleSubmit}>
+          <fieldset className="book-type-selector">
+            <legend>Book type</legend>
+            <p className="book-type-selector-note">
+              Book Type changes shortcuts and behavior. Changing it does not move or delete your existing content.
+            </p>
+            <div className="book-type-options">
+              {BOOK_TYPE_OPTIONS.map((opt) => (
+                <label key={opt.value} className={`book-type-option${bookType === opt.value ? ' active' : ''}`}>
+                  <input
+                    type="radio"
+                    name="bookType"
+                    value={opt.value}
+                    checked={bookType === opt.value}
+                    onChange={() => setBookType(opt.value)}
+                  />
+                  <span className="book-type-option-label">{opt.label}</span>
+                  <span className="book-type-option-description">{opt.description}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
           <label>
             <span>Title</span>
             <input type="text" value={name} onChange={(e) => setName(e.target.value)} required />

@@ -141,7 +141,10 @@ def test_normal_sequential_heartbeat_preserves_p0_2_accounting(
         hadTypingInput=True,
     )
     assert response.status_code == 200
-    assert response.json['averageWpm'] is not None
+    # Only 10 typed words -- below MIN_WPM_TYPED_WORDS (25, see P0.11's
+    # minimum-sample threshold), so no WPM yet even though this interval's
+    # accounting itself is credited correctly (asserted below).
+    assert response.json['averageWpm'] is None
     presence = ChapterPresence.query.filter_by(chapter_id=chapter.id, user_id=user.id).one()
     assert (presence.last_word_count, presence.last_typed_words, presence.last_pasted_words) == (12, 10, 2)
     typed, pasted, active = activity_totals(chapter.id, user.id)

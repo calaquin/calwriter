@@ -63,7 +63,7 @@ def test_shared_folder_stats_show_resource_totals_and_each_users_own_wpm(
     assert owner_stats.status_code == 200
     owner_stats = owner_stats.json
     assert owner_stats['activity']['totals'] == {
-        'wordsTyped': 210, 'wordsPasted': 65, 'activeSeconds': 540,
+        'wordsTyped': 210, 'wordsPasted': 65, 'wordsDeleted': 0, 'wordsWritten': 210, 'activeSeconds': 540,
     }
     assert 'wpm' not in owner_stats['activity']['totals']
     assert 'wpm' not in owner_stats
@@ -113,7 +113,7 @@ def test_chapter_contributions_are_exact_chapter_only(
     login(client, user)
     stats = client.get(f'/api/chapters/{parent.id}/stats?days=0').json
     assert stats['activity']['totals'] == {
-        'wordsTyped': 90, 'wordsPasted': 5, 'activeSeconds': 420,
+        'wordsTyped': 90, 'wordsPasted': 5, 'wordsDeleted': 0, 'wordsWritten': 90, 'activeSeconds': 420,
     }
     rows = by_user(stats)
     assert rows[str(user.id)]['wpm'] == 10.0

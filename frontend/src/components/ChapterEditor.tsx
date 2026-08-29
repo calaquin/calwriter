@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { useShortcutsModal } from '../context/ShortcutsModalContext'
 import { copyText } from '../utils/clipboard'
+import { canonicalSearchText, findLiteralOccurrences, rangeForCanonicalOffsets } from '../utils/searchText'
 import { api } from '../api/client'
 import type {
   InternalReferenceResolution,
@@ -10,6 +11,99 @@ import type {
 import LinkDialog from './LinkDialog'
 
 const FULL_WIDTH_KEY = 'calwriter:editorFullWidth'
+
+// Continuous typing/deleting coalesces into one history entry per pause of
+// this length, roughly matching how native browser undo groups keystrokes
+// into "bursts" instead of one entry per character -- see the history
+// helpers declared inside ChapterEditor for why native undo/redo isn't used
+// at all any more (list/checklist operations are plain DOM mutations that
+// never participated in it reliably, and a coherent editor can't have one
+// history for typing and a separate one for everything else).
+const TYPING_HISTORY_COALESCE_MS = 500
+// Bounds memory for a very long editing session; oldest entries drop off
+// the front once exceeded (see commitHistorySnapshot).
+const HISTORY_LIMIT = 100
+
+// Search 2.0 (P1.1): the CSS Custom Highlight API registry name this
+// editor's jump-to-occurrence highlight is registered under (see
+// applySearchHighlight/clearSearchHighlight). CSS.highlights is a single
+// *global* registry shared by the whole page, not scoped per component --
+// using one fixed, namespaced key means a later call always cleanly
+// replaces (not accumulates alongside) whatever this editor highlighted
+// before, and unmount/chapter-switch cleanup has one specific key to drop.
+const SEARCH_HIGHLIGHT_NAME = 'calwriter-search-match'
+// Custom Highlight API support -- Safari/Chrome/Edge have it; where it's
+// unavailable (older Firefox), the Selection API is used instead (see
+// applySearchHighlight), which is non-DOM-mutating but self-clears on the
+// browser's own native click/type behavior rather than needing explicit
+// teardown the way a Highlight registry entry does.
+const supportsCustomHighlight =
+  typeof CSS !== 'undefined' && 'highlights' in CSS && typeof Highlight !== 'undefined'
+
+function clearSearchHighlight() {
+  if (supportsCustomHighlight) CSS.highlights.delete(SEARCH_HIGHLIGHT_NAME)
+}
+
+function applySearchHighlight(range: Range) {
+  if (supportsCustomHighlight) {
+    CSS.highlights.set(SEARCH_HIGHLIGHT_NAME, new Highlight(range))
+    return
+  }
+  const selection = window.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+}
+
+// Centers the match vertically in the editor's actual scroll container
+// (.editor-workspace -- #chapter_editor itself doesn't scroll, see
+// index.css) rather than just barely exposing it at the top/bottom edge.
+function scrollRangeIntoView(range: Range) {
+  const rect = range.getClientRects()[0] ?? range.getBoundingClientRect()
+  if (rect.width === 0 && rect.height === 0) return
+  const anchor = range.commonAncestorContainer instanceof Element
+    ? range.commonAncestorContainer
+    : range.commonAncestorContainer.parentElement
+  const container = anchor?.closest<HTMLElement>('.editor-workspace')
+  if (!container) return
+  const containerRect = container.getBoundingClientRect()
+  const targetTop = rect.top - containerRect.top + container.scrollTop
+  const desiredScrollTop = targetTop - container.clientHeight / 2 + rect.height / 2
+  container.scrollTo({ top: Math.max(0, desiredScrollTop), behavior: 'smooth' })
+}
+
+// P1.2/P1.1A Journal "Write Today": appends a bold time paragraph plus an
+// empty, immediately-editable paragraph after it, and leaves the caret in
+// that empty paragraph. Ordinary <div> blocks (this editor's own paragraph
+// unit -- see index.css's `#chapter_editor div` rule and
+// setFirstLineIndent's comment on wrapping loose text the same way), no
+// proprietary markers: the saved HTML reads and exports like any other
+// chapter content. Only the time is shown (not the date, which the
+// Chapter itself already represents) and never seconds.
+//
+// `timeLabel` arrives already formatted by the backend using the Book
+// *owner's* journalTimeFormat preference (see JournalWriteTodayResult) --
+// inserted verbatim, never reformatted client-side, so every collaborator's
+// browser locale/settings can't produce a different-looking label for the
+// same entry.
+function appendJournalTimestamp(editor: HTMLDivElement, timeLabel: string): void {
+  const timestampBlock = document.createElement('div')
+  const strong = document.createElement('strong')
+  strong.textContent = timeLabel
+  timestampBlock.appendChild(strong)
+
+  const editableBlock = document.createElement('div')
+  editableBlock.appendChild(document.createElement('br'))
+
+  editor.appendChild(timestampBlock)
+  editor.appendChild(editableBlock)
+
+  const selection = window.getSelection()
+  const range = document.createRange()
+  range.setStart(editableBlock, 0)
+  range.collapse(true)
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+}
 
 const SPECIAL_CHARACTERS = [
   ['—', 'Em dash'],
@@ -257,6 +351,57 @@ function outdentListItem(li: HTMLLIElement): boolean {
   return true
 }
 
+// Caret/selection position expressed as plain-text character offsets from
+// the start of the editor, counting through every descendant text node in
+// document order (the same counting Range.toString().length already uses
+// elsewhere in this file -- see isCaretAtStartOfBlock/textBeforeCaretInBlock).
+// A history snapshot's DOM is thrown away and rebuilt wholesale on
+// undo/redo (editor.innerHTML = ...), which invalidates any node reference
+// a Range could hold -- an offset survives that because it's recomputed
+// against whatever nodes exist post-restore instead of pointing at ones
+// that no longer do.
+type HistorySelection = { start: number; end: number }
+
+function captureHistorySelection(editor: HTMLDivElement): HistorySelection | null {
+  const selection = window.getSelection()
+  if (!selection?.rangeCount) return null
+  const range = selection.getRangeAt(0)
+  if (!editor.contains(range.commonAncestorContainer)) return null
+  const preStart = document.createRange()
+  preStart.selectNodeContents(editor)
+  preStart.setEnd(range.startContainer, range.startOffset)
+  const preEnd = document.createRange()
+  preEnd.selectNodeContents(editor)
+  preEnd.setEnd(range.endContainer, range.endOffset)
+  return { start: preStart.toString().length, end: preEnd.toString().length }
+}
+
+function resolveHistoryOffset(editor: HTMLDivElement, targetOffset: number): { node: Node; offset: number } {
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT)
+  let remaining = targetOffset
+  let lastText: Text | null = null
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const text = node as Text
+    lastText = text
+    if (remaining <= text.data.length) return { node: text, offset: remaining }
+    remaining -= text.data.length
+  }
+  return lastText ? { node: lastText, offset: lastText.data.length } : { node: editor, offset: 0 }
+}
+
+function restoreHistorySelection(editor: HTMLDivElement, sel: HistorySelection | null) {
+  if (!sel) return
+  const selection = window.getSelection()
+  if (!selection) return
+  const start = resolveHistoryOffset(editor, sel.start)
+  const end = resolveHistoryOffset(editor, sel.end)
+  const range = document.createRange()
+  range.setStart(start.node, start.offset)
+  range.setEnd(end.node, end.offset)
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
 function clearBlockText(block: HTMLElement) {
   const selection = window.getSelection()
   if (!selection) return
@@ -267,14 +412,26 @@ function clearBlockText(block: HTMLElement) {
   document.execCommand('delete')
 }
 
-function handleEditorKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+// Ctrl/Cmd+Z, Shift+Z, and Y are intercepted earlier, directly in
+// ChapterEditor's onKeyDown (see performUndo/performRedo there) -- undo/redo
+// no longer goes through document.execCommand at all, so there's nothing
+// for this module-level handler to do for those keys.
+function handleEditorKeyDown(e: KeyboardEvent<HTMLDivElement>, withHistoryCommit: (mutate: () => void) => void) {
   if (e.key === 'Tab') {
     e.preventDefault()
     const li = closestListItem(e.currentTarget)
     if (li) {
-      return e.shiftKey ? outdentListItem(li) : indentListItem(li)
+      let changed = false
+      withHistoryCommit(() => {
+        changed = e.shiftKey ? outdentListItem(li) : indentListItem(li)
+      })
+      return changed
     }
-    return setFirstLineIndent(e.currentTarget, e.shiftKey)
+    let changed = false
+    withHistoryCommit(() => {
+      changed = setFirstLineIndent(e.currentTarget, e.shiftKey)
+    })
+    return changed
   }
   if (e.key === 'Backspace' && !e.ctrlKey && !e.metaKey && !e.altKey) {
     const editor = e.currentTarget
@@ -284,36 +441,32 @@ function handleEditorKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (block && block !== editor && editor.contains(block) && (parseFloat(block.style.textIndent) || 0) > 0) {
       if (isCaretAtStartOfBlock(block)) {
         e.preventDefault()
-        return setFirstLineIndent(editor, true)
+        let changed = false
+        withHistoryCommit(() => {
+          changed = setFirstLineIndent(editor, true)
+        })
+        return changed
       }
     }
   }
-  // Chrome applies bold/italic/underline/undo/redo for these combos natively
-  // on any contenteditable, but Firefox reserves Ctrl+B (bookmarks sidebar)
-  // and Ctrl+U (view source) as browser-chrome shortcuts and never hands them
-  // to the page -- so they have to be handled explicitly and preventDefault'd
+  // Chrome applies bold/italic/underline natively for these combos on any
+  // contenteditable, but Firefox reserves Ctrl+B (bookmarks sidebar) and
+  // Ctrl+U (view source) as browser-chrome shortcuts and never hands them to
+  // the page -- so they have to be handled explicitly and preventDefault'd
   // here to work consistently across browsers.
   if (!e.ctrlKey && !e.metaKey) return
   switch (e.key.toLowerCase()) {
     case 'b':
       e.preventDefault()
-      execCmd('bold')
+      withHistoryCommit(() => execCmd('bold'))
       return false
     case 'i':
       e.preventDefault()
-      execCmd('italic')
+      withHistoryCommit(() => execCmd('italic'))
       return false
     case 'u':
       e.preventDefault()
-      execCmd('underline')
-      return false
-    case 'z':
-      e.preventDefault()
-      execCmd(e.shiftKey ? 'redo' : 'undo')
-      return false
-    case 'y':
-      e.preventDefault()
-      execCmd('redo')
+      withHistoryCommit(() => execCmd('underline'))
       return false
   }
   return false
@@ -332,18 +485,26 @@ export default function ChapterEditor({
   completed,
   onToggleComplete,
   onNavigateInternalReference,
+  findRequest,
+  onFindHandled,
+  journalEntryRequest,
+  onJournalEntryHandled,
 }: {
   chapterId: string
   initialHtml: string
   onChange: (html: string) => void
   onWordCountChange?: (count: number) => void
   /** Fired whenever an edit earns writing-activity credit, classified at
-   * the source -- see classifyInputType. Positive word growth from genuine
-   * typing reports typedWords; content actually brought in via clipboard
-   * paste or an external drop reports pastedWords (independent of net
-   * word-count delta -- pasting 250 words over a 100-word selection
-   * reports pastedWords: 250, not the net +150). Never both in one call. */
-  onActivity?: (delta: { typedWords: number; pastedWords: number }) => void
+   * the source -- see classifyInputType. A genuine keyboard/composition
+   * edit's word-count delta reports typedWords when positive or
+   * deletedWords (as a positive count) when negative -- never both in one
+   * call, and neither when the delta is zero (e.g. "cat" -> "car"; see
+   * onTypingInput for that case). Content actually brought in via clipboard
+   * paste or an external drop reports pastedWords instead, independent of
+   * net word-count delta -- pasting 250 words over a 100-word selection
+   * reports pastedWords: 250, not the net +150, and never touches
+   * typedWords/deletedWords. Undo/redo never fires this at all. */
+  onActivity?: (delta: { typedWords: number; pastedWords: number; deletedWords: number }) => void
   /** Fired for genuine keyboard/composition input (including deletes) even
    * when it doesn't change word count -- e.g. "cat" -> "car". This is the
    * signal active-writing-time should gate on, deliberately separate from
@@ -367,10 +528,40 @@ export default function ChapterEditor({
   completed?: boolean
   onToggleComplete?: () => void
   onNavigateInternalReference: (route: string) => void
+  /** Search 2.0 (P1.1) jump-to-occurrence handoff -- ChapterPage derives
+   * this from the chapter URL's find/findSource/findIndex params (content
+   * source only; a notes match is handled directly by ChapterPage against
+   * the notes textarea, never passed here). The occurrence is re-located
+   * by re-running the same literal search against the *current* live
+   * content rather than trusting stale offsets from whenever the user
+   * searched -- see findLiteralOccurrences/canonicalSearchText. */
+  findRequest?: { query: string; occurrenceIndex: number } | null
+  /** Fired once per findRequest, true if the occurrence was found and
+   * highlighted, false if the chapter has changed since and it no longer
+   * exists (a stale result) -- either way ChapterPage should clear the
+   * temporary find params from the URL. */
+  onFindHandled?: (found: boolean) => void
+  /** P1.2/P1.1A Journal "Write Today" timestamp handoff -- ChapterPage
+   * derives this from the chapter URL's journalEntry/journalEntryTimeLabel
+   * params. `requestId` is consumed exactly once (tracked internally),
+   * making repeated deliveries of the same request -- Strict Mode, an
+   * effect rerun, a Chapter refetch -- safe no-ops instead of a second
+   * timestamp. `timeLabel` is the Book owner's journalTimeFormat-formatted
+   * label (e.g. "10:42 PM"/"22:42") from JournalWriteTodayResult, inserted
+   * verbatim -- never reformatted client-side. */
+  journalEntryRequest?: { requestId: string; timeLabel: string } | null
+  /** Fired once the journalEntryRequest has been applied (or skipped as
+   * already-consumed) so ChapterPage can clear the temporary URL params. */
+  onJournalEntryHandled?: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const characterPickerRef = useRef<HTMLDivElement>(null)
   const lastLoadedChapterId = useRef<string | null>(null)
+  // P1.2: the last journalEntryRequest.requestId actually applied -- guards
+  // against inserting a second timestamp for the same Write Today click via
+  // Strict Mode's double effect invocation, an unrelated rerender, or a
+  // Chapter refetch re-delivering the same (still-unconsumed-per-URL) props.
+  const consumedJournalRequestIdRef = useRef<string | null>(null)
   // Word count as of the last processed mutation -- lets the onInput
   // classifier compute a typed delta regardless of which code path last
   // changed the DOM (toolbar command, markdown shortcut, raw typing, ...).
@@ -394,6 +585,111 @@ export default function ChapterEditor({
   // indistinguishable from real keyboard input.
   const pendingSourceOverrideRef = useRef<'programmatic' | null>(null)
   const savedLinkRangeRef = useRef<Range | null>(null)
+  // The one coherent edit history -- see the module-level comment on
+  // TYPING_HISTORY_COALESCE_MS. historyRef[historyIndexRef] is always kept
+  // equal to the editor's current (serialized) content whenever no
+  // keystroke/operation is in flight; commitHistorySnapshot is what
+  // maintains that invariant. Refs, not state -- committed on every
+  // keystroke's debounce, which is far too often to route through React.
+  const historyRef = useRef<{ html: string; selection: HistorySelection | null }[]>([])
+  const historyIndexRef = useRef(0)
+  const typingCommitTimerRef = useRef<number | null>(null)
+  // Nesting guard for withHistoryCommit: a markdown shortcut's clearBlockText
+  // + applyChecklist(...) call is one user-facing operation even though
+  // applyChecklist independently wraps itself for its own (toolbar-button)
+  // call site -- without this, the inner call's flush/commit would split
+  // that one operation into two history entries. Only depth 0 -> 1 flushes
+  // the prior state and only 1 -> 0 commits the result; everything in
+  // between collapses into that single outer entry.
+  const historyCommitDepthRef = useRef(0)
+
+  function commitHistorySnapshot() {
+    const editor = ref.current
+    if (!editor) return
+    const html = serializeEditorHtml(editor)
+    const top = historyRef.current[historyIndexRef.current]
+    if (top && top.html === html) return
+    const entries = [
+      ...historyRef.current.slice(0, historyIndexRef.current + 1),
+      { html, selection: captureHistorySelection(editor) },
+    ]
+    if (entries.length > HISTORY_LIMIT) entries.shift()
+    historyRef.current = entries
+    historyIndexRef.current = entries.length - 1
+  }
+
+  function flushTypingHistoryCommit() {
+    if (typingCommitTimerRef.current !== null) {
+      window.clearTimeout(typingCommitTimerRef.current)
+      typingCommitTimerRef.current = null
+    }
+    commitHistorySnapshot()
+  }
+
+  // Debounced entry point for genuine native input events (typing, deleting,
+  // paste, drop, ...) -- called unconditionally from onInput. Coalesces a
+  // burst of keystrokes into one history entry per pause, rather than one
+  // per character. Safe to call even for a DOM change that a withHistoryCommit
+  // call already committed synchronously (e.g. a toolbar click, whose
+  // execCommand triggers this same onInput handler) -- commitHistorySnapshot's
+  // no-op check means the eventual timer firing just finds nothing new.
+  function scheduleTypingHistoryCommit() {
+    if (typingCommitTimerRef.current !== null) window.clearTimeout(typingCommitTimerRef.current)
+    typingCommitTimerRef.current = window.setTimeout(() => {
+      typingCommitTimerRef.current = null
+      commitHistorySnapshot()
+    }, TYPING_HISTORY_COALESCE_MS)
+  }
+
+  // Wraps a programmatic/structural DOM mutation (list conversion,
+  // indent/outdent, checklist toggle, link, toolbar command, ...) so it
+  // becomes its own atomic, undoable history entry: whatever was pending
+  // from typing is flushed as its own entry first, the mutation runs, then
+  // its result is committed as the next entry.
+  function withHistoryCommit(mutate: () => void) {
+    if (historyCommitDepthRef.current === 0) flushTypingHistoryCommit()
+    historyCommitDepthRef.current += 1
+    try {
+      mutate()
+    } finally {
+      historyCommitDepthRef.current -= 1
+      if (historyCommitDepthRef.current === 0) commitHistorySnapshot()
+    }
+  }
+
+  function restoreHistoryEntry(entry: { html: string; selection: HistorySelection | null }) {
+    const editor = ref.current
+    if (!editor) return
+    editor.innerHTML = entry.html
+    editor.focus()
+    restoreHistorySelection(editor, entry.selection)
+    refreshInternalReferences(editor)
+    // Undo/redo must earn no typed/pasted/goal/streak/WPM credit -- only the
+    // normal content-change/reporting paths (autosave, word count), never
+    // onActivity/onTypingInput.
+    onChange(serializeEditorHtml(editor))
+    reportWordCount(countWords(editor))
+  }
+
+  // Both flush first: an in-flight (not-yet-debounced) typing burst must
+  // become its own entry before moving the history pointer, both so undo
+  // removes exactly that burst (not silently discarding it unrecorded) and
+  // so redo's "stale future" is correctly invalidated by the flush's own
+  // commit (which truncates historyRef past the current index) rather than
+  // by performRedo finding a redo target that new typing already made stale.
+  function performUndo() {
+    flushTypingHistoryCommit()
+    if (historyIndexRef.current <= 0) return
+    historyIndexRef.current -= 1
+    restoreHistoryEntry(historyRef.current[historyIndexRef.current])
+  }
+
+  function performRedo() {
+    flushTypingHistoryCommit()
+    if (historyIndexRef.current >= historyRef.current.length - 1) return
+    historyIndexRef.current += 1
+    restoreHistoryEntry(historyRef.current[historyIndexRef.current])
+  }
   const [showCharacters, setShowCharacters] = useState(false)
   const [linkSelection, setLinkSelection] = useState<string | null>(null)
   const [linkSelectionError, setLinkSelectionError] = useState(false)
@@ -459,9 +755,80 @@ export default function ChapterEditor({
       internalDragActiveRef.current = false
       pendingSourceOverrideRef.current = null
       refreshInternalReferences(ref.current)
+      // A different chapter's edit history has nothing to do with this
+      // one's -- start fresh at this chapter's own loaded content, and drop
+      // any in-flight coalescing timer from whatever chapter was open before.
+      if (typingCommitTimerRef.current !== null) {
+        window.clearTimeout(typingCommitTimerRef.current)
+        typingCommitTimerRef.current = null
+      }
+      historyRef.current = [{ html: serializeEditorHtml(ref.current), selection: null }]
+      historyIndexRef.current = 0
+      historyCommitDepthRef.current = 0
+      // A leftover highlight from whatever chapter was open before would
+      // otherwise keep pointing at now-detached DOM.
+      clearSearchHighlight()
+      consumedJournalRequestIdRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chapterId, initialHtml, onWordCountChange])
+
+  // Search 2.0 (P1.1) jump-to-occurrence: re-locates the requested
+  // occurrence against the *current* live content (not trusting whatever
+  // offsets existed when the user searched -- see findRequest's docstring)
+  // and highlights + scrolls to it. Runs after the chapter-load effect
+  // above in the same commit on a fresh mount, so the editor's content is
+  // already in the DOM by the time this reads it.
+  useEffect(() => {
+    if (!findRequest || !ref.current) return
+    const editor = ref.current
+    const occurrences = findLiteralOccurrences(canonicalSearchText(editor), findRequest.query)
+    const span = occurrences[findRequest.occurrenceIndex]
+    const range = span ? rangeForCanonicalOffsets(editor, span[0], span[1]) : null
+    if (!range) {
+      onFindHandled?.(false)
+      return
+    }
+    applySearchHighlight(range)
+    scrollRangeIntoView(range)
+    onFindHandled?.(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [findRequest, chapterId])
+
+  // Leaving the Chapter page entirely (not just switching chapters, which
+  // the chapter-load effect above already handles) must not leave a
+  // highlight registered against a now-unmounted editor.
+  useEffect(() => clearSearchHighlight, [])
+
+  // P1.2 Journal "Write Today" timestamp handoff. requestId-guarded so
+  // Strict Mode's double effect invocation, an unrelated rerender, or a
+  // Chapter refetch that redelivers the same (still-unconsumed-per-URL)
+  // props can never append a second timestamp for one Write Today click --
+  // "exactly once," not a time-based suppression window. The insertion
+  // itself is a plain DOM mutation (append two <div>s), not execCommand or
+  // a real keystroke, so it never fires onInput -- meaning it earns no
+  // typed/pasted/deleted/WPM/goal credit unless this code explicitly grants
+  // it, which it deliberately never does. It still must call the normal
+  // content-change/reporting paths itself afterward (onChange/
+  // reportWordCount), same as every other direct-DOM list/checklist
+  // operation in this file, and it's wrapped in withHistoryCommit so
+  // Undo/Redo treats the whole insertion as one atomic step.
+  useEffect(() => {
+    if (!journalEntryRequest || !ref.current) return
+    if (consumedJournalRequestIdRef.current === journalEntryRequest.requestId) return
+    consumedJournalRequestIdRef.current = journalEntryRequest.requestId
+    const editor = ref.current
+    withHistoryCommit(() => {
+      appendJournalTimestamp(editor, journalEntryRequest.timeLabel)
+    })
+    onChange(serializeEditorHtml(editor))
+    reportWordCount(countWords(editor))
+    const container = editor.closest<HTMLElement>('.editor-workspace')
+    container?.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
+    editor.focus()
+    onJournalEntryHandled?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [journalEntryRequest, chapterId])
 
   useEffect(() => {
     if (!showCharacters) return
@@ -489,17 +856,21 @@ export default function ChapterEditor({
     // being indistinguishable from genuine typing to the onInput
     // classifier, which would otherwise see the exact same 'insertText'
     // inputType either way.
-    pendingSourceOverrideRef.current = 'programmatic'
-    execCmd(command, value)
+    withHistoryCommit(() => {
+      pendingSourceOverrideRef.current = 'programmatic'
+      execCmd(command, value)
+    })
     ref.current?.focus()
     onChange(serializeEditorHtml(ref.current))
     reportWordCount(countWords(ref.current))
   }
 
   function runParagraphIndent(remove: boolean) {
-    if (ref.current && setFirstLineIndent(ref.current, remove)) {
-      onChange(serializeEditorHtml(ref.current))
-    }
+    withHistoryCommit(() => {
+      if (ref.current && setFirstLineIndent(ref.current, remove)) {
+        onChange(serializeEditorHtml(ref.current))
+      }
+    })
     ref.current?.focus()
   }
 
@@ -513,23 +884,25 @@ export default function ChapterEditor({
     const editor = ref.current
     if (!editor) return
     editor.focus()
-    if (!closestListItem(editor)) {
-      // Only set the override immediately before an execCommand call that
-      // will actually happen -- an unconsumed override would otherwise
-      // wrongly swallow the next real keystroke's typed credit.
-      pendingSourceOverrideRef.current = 'programmatic'
-      execCmd('insertUnorderedList')
-    }
-    const selection = window.getSelection()
-    const range = selection?.rangeCount ? selection.getRangeAt(0) : null
-    const allItems = Array.from(editor.querySelectorAll('li'))
-    const affected = range ? allItems.filter((li) => range.intersectsNode(li)) : []
-    const current = closestListItem(editor)
-    const targets = affected.length > 0 ? affected : current ? [current] : []
-    for (const li of targets) {
-      li.classList.add('checklist-item')
-      li.classList.toggle('checked', checked)
-    }
+    withHistoryCommit(() => {
+      if (!closestListItem(editor)) {
+        // Only set the override immediately before an execCommand call that
+        // will actually happen -- an unconsumed override would otherwise
+        // wrongly swallow the next real keystroke's typed credit.
+        pendingSourceOverrideRef.current = 'programmatic'
+        execCmd('insertUnorderedList')
+      }
+      const selection = window.getSelection()
+      const range = selection?.rangeCount ? selection.getRangeAt(0) : null
+      const allItems = Array.from(editor.querySelectorAll('li'))
+      const affected = range ? allItems.filter((li) => range.intersectsNode(li)) : []
+      const current = closestListItem(editor)
+      const targets = affected.length > 0 ? affected : current ? [current] : []
+      for (const li of targets) {
+        li.classList.add('checklist-item')
+        li.classList.toggle('checked', checked)
+      }
+    })
     onChange(serializeEditorHtml(editor))
     reportWordCount(countWords(editor))
   }
@@ -548,32 +921,40 @@ export default function ChapterEditor({
 
     if (/^[-*]$/.test(text)) {
       e.preventDefault()
-      clearBlockText(block)
-      pendingSourceOverrideRef.current = 'programmatic'
-      execCmd('insertUnorderedList')
+      withHistoryCommit(() => {
+        clearBlockText(block)
+        pendingSourceOverrideRef.current = 'programmatic'
+        execCmd('insertUnorderedList')
+      })
       onChange(serializeEditorHtml(editor))
       reportWordCount(countWords(editor))
       return true
     }
     if (/^\d+\.$/.test(text)) {
       e.preventDefault()
-      clearBlockText(block)
-      pendingSourceOverrideRef.current = 'programmatic'
-      execCmd('insertOrderedList')
+      withHistoryCommit(() => {
+        clearBlockText(block)
+        pendingSourceOverrideRef.current = 'programmatic'
+        execCmd('insertOrderedList')
+      })
       onChange(serializeEditorHtml(editor))
       reportWordCount(countWords(editor))
       return true
     }
     if (/^\[ ?\]$/.test(text)) {
       e.preventDefault()
-      clearBlockText(block)
-      applyChecklist(false)
+      withHistoryCommit(() => {
+        clearBlockText(block)
+        applyChecklist(false)
+      })
       return true
     }
     if (/^\[[xX]\]$/.test(text)) {
       e.preventDefault()
-      clearBlockText(block)
-      applyChecklist(true)
+      withHistoryCommit(() => {
+        clearBlockText(block)
+        applyChecklist(true)
+      })
       return true
     }
     return false
@@ -618,24 +999,26 @@ export default function ChapterEditor({
     editor.focus()
     selection.removeAllRanges()
     selection.addRange(range)
-    pendingSourceOverrideRef.current = 'programmatic'
-    execCmd('createLink', href)
+    withHistoryCommit(() => {
+      pendingSourceOverrideRef.current = 'programmatic'
+      execCmd('createLink', href)
 
-    const selectionNode = selection.anchorNode
-    const selectionElement = selectionNode instanceof HTMLElement ? selectionNode : selectionNode?.parentElement
-    const anchor = selectionElement?.closest<HTMLAnchorElement>('a') ?? null
-    if (anchor && editor.contains(anchor)) {
-      if (target) {
-        anchor.dataset.calwriterTargetType = target.targetType
-        anchor.dataset.calwriterTargetId = target.targetId
-        anchor.href = `calwriter://${target.targetType}/${target.targetId}`
-        anchor.dataset.calwriterStatus = 'available'
-        anchor.title = `${target.name} — open ${target.targetType}`
-      } else {
-        anchor.target = '_blank'
-        anchor.rel = 'noopener noreferrer'
+      const selectionNode = selection.anchorNode
+      const selectionElement = selectionNode instanceof HTMLElement ? selectionNode : selectionNode?.parentElement
+      const anchor = selectionElement?.closest<HTMLAnchorElement>('a') ?? null
+      if (anchor && editor.contains(anchor)) {
+        if (target) {
+          anchor.dataset.calwriterTargetType = target.targetType
+          anchor.dataset.calwriterTargetId = target.targetId
+          anchor.href = `calwriter://${target.targetType}/${target.targetId}`
+          anchor.dataset.calwriterStatus = 'available'
+          anchor.title = `${target.name} — open ${target.targetType}`
+        } else {
+          anchor.target = '_blank'
+          anchor.rel = 'noopener noreferrer'
+        }
       }
-    }
+    })
     onChange(serializeEditorHtml(editor))
     reportWordCount(countWords(editor))
     pendingSourceOverrideRef.current = null
@@ -716,8 +1099,8 @@ export default function ChapterEditor({
         <span className="toolbar-divider" aria-hidden="true" />
         <button type="button" className="icon-btn icon-hr" onMouseDown={(e) => e.preventDefault()} onClick={() => runCommand('insertHorizontalRule')} title="Horizontal line" aria-label="Insert horizontal line" />
         <span className="toolbar-divider" aria-hidden="true" />
-        <button type="button" className="icon-btn icon-undo" onMouseDown={(e) => e.preventDefault()} onClick={() => runCommand('undo')} title="Undo (Ctrl+Z)" aria-label="Undo" />
-        <button type="button" className="icon-btn icon-redo" onMouseDown={(e) => e.preventDefault()} onClick={() => runCommand('redo')} title="Redo (Ctrl+Y)" aria-label="Redo" />
+        <button type="button" className="icon-btn icon-undo" onMouseDown={(e) => e.preventDefault()} onClick={() => performUndo()} title="Undo (Ctrl+Z)" aria-label="Undo" />
+        <button type="button" className="icon-btn icon-redo" onMouseDown={(e) => e.preventDefault()} onClick={() => performRedo()} title="Redo (Ctrl+Y)" aria-label="Redo" />
         <span className="toolbar-divider" aria-hidden="true" />
         <button
           type="button"
@@ -778,6 +1161,10 @@ export default function ChapterEditor({
           contentEditable
           suppressContentEditableWarning
           onInput={(e) => {
+            // Search 2.0: a temporary jump-to-occurrence highlight is
+            // presentation-only and lasts "until the user clicks/types in
+            // the editor" -- any genuine input event ends it.
+            clearSearchHighlight()
             const editor = ref.current
             if (editor) {
               const li = closestListItem(editor)
@@ -805,6 +1192,14 @@ export default function ChapterEditor({
             const newCount = countWords(editor)
             onChange(serializeEditorHtml(editor))
             reportWordCount(newCount)
+            // Every genuine input event -- typed, deleted, pasted, dropped,
+            // or an unrecognized inputType -- schedules a (debounced,
+            // coalescing) history commit. Safe to call even when a
+            // withHistoryCommit call already committed this same DOM change
+            // synchronously (e.g. a toolbar command's execCommand triggers
+            // this handler too): commitHistorySnapshot no-ops when nothing's
+            // changed since the last entry.
+            scheduleTypingHistoryCommit()
 
             // Consume the programmatic override first, before it can be
             // confused with the native event's own inputType -- see
@@ -822,7 +1217,7 @@ export default function ChapterEditor({
               // Independent of delta sign -- see onActivity's docstring:
               // pasting over a selection can shrink the document while
               // still bringing in a large pasted block.
-              if (pasted > 0) onActivity?.({ typedWords: 0, pastedWords: pasted })
+              if (pasted > 0) onActivity?.({ typedWords: 0, pastedWords: pasted, deletedWords: 0 })
               return
             }
 
@@ -830,13 +1225,38 @@ export default function ChapterEditor({
             if (classification === 'other') return
             onTypingInput?.()
             const delta = newCount - prevCount
-            if (classification === 'typed' && delta > 0) {
-              onActivity?.({ typedWords: delta, pastedWords: 0 })
+            // Sign of the delta decides typed vs. deleted -- not which of
+            // 'typed'/'delete' classifyInputType returned, per the P0.11
+            // spec (a delete-classified edit that somehow nets positive, or
+            // vice versa, should still land in the count matching what
+            // actually happened to the word count).
+            if (delta > 0) {
+              onActivity?.({ typedWords: delta, pastedWords: 0, deletedWords: 0 })
+            } else if (delta < 0) {
+              onActivity?.({ typedWords: 0, pastedWords: 0, deletedWords: -delta })
             }
           }}
           onKeyDown={(e) => {
+            // Undo/redo bypasses document.execCommand entirely (see
+            // performUndo/performRedo) -- list/checklist operations never
+            // participated reliably in native browser history, and a
+            // coherent editor can't split typing into one history and
+            // structural edits into another. Checked before anything else
+            // so it can never fall through to handleEditorKeyDown's own
+            // (now-removed) native undo/redo handling.
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+              e.preventDefault()
+              if (e.shiftKey) performRedo()
+              else performUndo()
+              return
+            }
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+              e.preventDefault()
+              performRedo()
+              return
+            }
             if (e.key === ' ' && handleMarkdownShortcut(e)) return
-            if (handleEditorKeyDown(e)) {
+            if (handleEditorKeyDown(e, withHistoryCommit)) {
               onChange(serializeEditorHtml(ref.current))
             }
           }}
@@ -863,6 +1283,9 @@ export default function ChapterEditor({
             internalDragActiveRef.current = false
           }}
           onMouseDown={(e) => {
+            // Search 2.0: a click anywhere in the editor also ends the
+            // temporary jump-to-occurrence highlight, same as typing does.
+            clearSearchHighlight()
             const li = (e.target as HTMLElement).closest?.('li.checklist-item') as HTMLLIElement | null
             if (!li || !ref.current?.contains(li)) return
             const rect = li.getBoundingClientRect()
@@ -871,7 +1294,7 @@ export default function ChapterEditor({
             const zoneRight = rect.left - 0.3 * emPx
             if (e.clientX >= zoneLeft && e.clientX <= zoneRight) {
               e.preventDefault()
-              li.classList.toggle('checked')
+              withHistoryCommit(() => li.classList.toggle('checked'))
               onChange(serializeEditorHtml(ref.current))
             }
           }}

@@ -17,12 +17,15 @@ import { useBodyClass } from '../hooks/useBodyClass'
 import { useTabs, tabBackTarget } from '../context/TabsContext'
 import { useAuth } from '../context/AuthContext'
 import { useSidebarVisibility } from '../context/SidebarVisibilityContext'
+import { findLiteralOccurrences } from '../utils/searchText'
 import ChapterEditor from '../components/ChapterEditor'
 import ChapterTabs from '../components/ChapterTabs'
 import ChapterSettingsModal from '../components/ChapterSettingsModal'
 import ChapterHistoryModal from '../components/ChapterHistoryModal'
 import ConfirmModal from '../components/ConfirmModal'
 import { copyText } from '../utils/clipboard'
+
+const STALE_SEARCH_MATCH_MESSAGE = 'Search match is no longer present.'
 
 const NOTES_COLLAPSED_KEY = 'calwriter:notesCollapsed'
 const WRITE_MODE_KEY = 'calwriter:writeMode'
@@ -58,6 +61,54 @@ export default function ChapterPage() {
     setSearchParams(next, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams])
+
+  // Search 2.0 (P1.1) jump-to-occurrence handoff -- see the Search page's
+  // matchHref. `find`/`findSource`/`findIndex` are a temporary navigation
+  // handoff, not durable chapter state: cleared from the URL (via history
+  // replace, so Back still returns to the Search results, not to this
+  // intermediate state) once handled, successfully or not.
+  const findQuery = searchParams.get('find')
+  const findSource = searchParams.get('findSource')
+  const findIndex = Number(searchParams.get('findIndex') ?? '0') || 0
+  const findRequest = findQuery && findSource === 'content' ? { query: findQuery, occurrenceIndex: findIndex } : null
+  const [staleSearchMatch, setStaleSearchMatch] = useState(false)
+
+  function clearFindParams() {
+    const next = new URLSearchParams(searchParams)
+    next.delete('find')
+    next.delete('findSource')
+    next.delete('findIndex')
+    setSearchParams(next, { replace: true })
+  }
+
+  function handleContentFindHandled(found: boolean) {
+    if (!found) setStaleSearchMatch(true)
+    clearFindParams()
+  }
+
+  // P1.2/P1.1A Journal "Write Today" timestamp handoff -- see FolderPage's
+  // handleWriteToday. journalEntry/journalEntryTimeLabel are their own
+  // separate temporary params (never find/findSource/findIndex) so Journal
+  // and Search 2.0 navigation can never interfere with one another, even
+  // if a link somehow carried both. journalEntryTimeLabel arrives already
+  // formatted with the Book owner's journalTimeFormat preference (see
+  // JournalWriteTodayResult) -- inserted verbatim, never reformatted here.
+  // Cleared the same history-replace way once ChapterEditor confirms the
+  // timestamp was applied.
+  const journalEntryId = searchParams.get('journalEntry')
+  const journalEntryTimeLabel = searchParams.get('journalEntryTimeLabel')
+  const journalEntryRequest =
+    journalEntryId && journalEntryTimeLabel
+      ? { requestId: journalEntryId, timeLabel: journalEntryTimeLabel }
+      : null
+
+  function handleJournalEntryHandled() {
+    const next = new URLSearchParams(searchParams)
+    next.delete('journalEntry')
+    next.delete('journalEntryTimeLabel')
+    setSearchParams(next, { replace: true })
+  }
+
   const [editorResetKey, setEditorResetKey] = useState(0)
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved')
   const [hasConflict, setHasConflict] = useState(false)
@@ -74,7 +125,7 @@ export default function ChapterPage() {
   // report live values instead of whatever they were when the interval was
   // created.
   const wordCountRef = useRef(0)
-  // Cumulative *since this chapter was opened* typed/pasted word totals --
+  // Cumulative *since this chapter was opened* typed/pasted/deleted word totals --
   // deliberately never reset by a successful heartbeat (only by opening a
   // different chapter, i.e. the interval effect re-running below). The
   // server diffs these against its own last-recorded totals the same way
@@ -83,6 +134,7 @@ export default function ChapterPage() {
   // one instead of lost, and a duplicated heartbeat can't double-credit.
   const typedWordsTotalRef = useRef(0)
   const pastedWordsTotalRef = useRef(0)
+  const deletedWordsTotalRef = useRef(0)
   // Unlike the two totals above, this one *is* reset after each heartbeat
   // send -- it's a lower-stakes "did genuine typing/deleting input happen
   // this interval" boolean gating active-writing-seconds, not a word count,
@@ -130,6 +182,7 @@ export default function ChapterPage() {
     // resetting its own mirrors on the same chapter-switch boundary).
     typedWordsTotalRef.current = 0
     pastedWordsTotalRef.current = 0
+    deletedWordsTotalRef.current = 0
     hadTypingSinceHeartbeatRef.current = false
     setAverageWpm(null)
     function fireHeartbeat() {
@@ -137,6 +190,7 @@ export default function ChapterPage() {
         wordCount: wordCountRef.current,
         typedWordsTotal: typedWordsTotalRef.current,
         pastedWordsTotal: pastedWordsTotalRef.current,
+        deletedWordsTotal: deletedWordsTotalRef.current,
         hadTypingInput: hadTypingSinceHeartbeatRef.current,
       }, {
         onSuccess: (result) => setAverageWpm(result.averageWpm),
@@ -170,6 +224,47 @@ export default function ChapterPage() {
       return next
     })
   }
+
+  // Search 2.0: a Notes-source jump-to-occurrence result needs the panel
+  // visibly expanded -- forced open WITHOUT going through
+  // toggleNotesCollapsed (i.e. never persisted to NOTES_COLLAPSED_KEY), so
+  // Search temporarily borrowing the panel doesn't overwrite the user's own
+  // collapsed/expanded preference. They can still collapse/expand normally
+  // afterward.
+  useEffect(() => {
+    if (findSource === 'notes' && findQuery) setNotesCollapsed(false)
+  }, [findSource, findQuery])
+
+  useEffect(() => {
+    if (findSource !== 'notes' || !findQuery || notesCollapsed) return
+    const textarea = notesRef.current
+    // The chapter (and this effect, since hooks run before ChapterPage's own
+    // own `if (isLoading) return <p>Loading...</p>`) can mount before the
+    // Notes textarea itself does -- chapter?.id in the deps below re-fires
+    // this once loading finishes and the ref is actually attached, instead
+    // of silently no-op'ing forever on a null ref from that first pass.
+    if (!textarea) return
+    // Searches the *live* textarea value (not the possibly-stale chapter.notesText
+    // from the last fetch) -- same "trust current content over whatever was
+    // true when the user searched" approach as ChapterEditor's own findRequest.
+    const occurrences = findLiteralOccurrences(textarea.value, findQuery)
+    const span = occurrences[findIndex]
+    if (!span) {
+      setStaleSearchMatch(true)
+      clearFindParams()
+      return
+    }
+    textarea.focus()
+    textarea.setSelectionRange(span[0], span[1])
+    clearFindParams()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [findSource, findQuery, findIndex, notesCollapsed, chapter?.id])
+
+  useEffect(() => {
+    if (!staleSearchMatch) return
+    const timer = setTimeout(() => setStaleSearchMatch(false), 6000)
+    return () => clearTimeout(timer)
+  }, [staleSearchMatch])
 
   // The user-dragged height of the sub-chapters panel, in px -- null means
   // "no override yet", i.e. fall back to the CSS default (natural content
@@ -489,9 +584,10 @@ export default function ChapterPage() {
             wordCountRef.current = count
             setWordCount(count)
           }}
-          onActivity={({ typedWords, pastedWords }) => {
+          onActivity={({ typedWords, pastedWords, deletedWords }) => {
             typedWordsTotalRef.current += typedWords
             pastedWordsTotalRef.current += pastedWords
+            deletedWordsTotalRef.current += deletedWords
           }}
           onTypingInput={() => {
             hadTypingSinceHeartbeatRef.current = true
@@ -502,15 +598,29 @@ export default function ChapterPage() {
           completed={chapter.completedAt !== null}
           onToggleComplete={chapter.role !== 'viewer' ? () => handleToggleComplete(chapter.completedAt === null) : undefined}
           onNavigateInternalReference={(route) => navigate(route)}
+          findRequest={findRequest}
+          onFindHandled={handleContentFindHandled}
+          journalEntryRequest={journalEntryRequest}
+          onJournalEntryHandled={handleJournalEntryHandled}
         />
+        {staleSearchMatch && (
+          <div className="search-stale-notice" role="status">
+            {STALE_SEARCH_MATCH_MESSAGE}
+          </div>
+        )}
         <footer className="chapter-statusbar" aria-live="polite">
           {settings?.showWordCount && (
             <span className="chapter-writing-stats">
               <span>Words: {wordCount.toLocaleString()}</span>
-              {settings.showAverageWpm && (
+              {/* No WPM sample yet (< MIN_WPM_TYPED_WORDS typed or <
+                  MIN_WPM_ACTIVE_SECONDS active, see services.calculate_wpm)
+                  means averageWpm is null -- the label and separator are
+                  omitted entirely rather than showing a premature "Avg WPM:
+                  —", and simply appear once enough data exists. */}
+              {settings.showAverageWpm && averageWpm !== null && (
                 <>
                   <span aria-hidden="true">·</span>
-                  <span>Avg WPM: {averageWpm === null ? '—' : averageWpm.toFixed(1)}</span>
+                  <span>Avg WPM: {averageWpm.toFixed(1)}</span>
                 </>
               )}
             </span>

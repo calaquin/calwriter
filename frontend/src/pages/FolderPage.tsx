@@ -14,15 +14,24 @@ import {
   useLeaveShare,
   useOpenAll,
   useToggleChapterComplete,
+  useWriteJournalToday,
 } from '../api/hooks'
 import { useDragReorder } from '../hooks/useDragReorder'
 import { EMPTY_ARRAY } from '../api/constants'
 import { useAuth } from '../context/AuthContext'
-import { triggerDownload } from '../api/client'
+import { triggerDownload, ApiError } from '../api/client'
 import FolderSettingsModal from '../components/FolderSettingsModal'
 import CreateItemModal from '../components/CreateItemModal'
 import ConfirmModal from '../components/ConfirmModal'
 import TreeItemMenu, { type MenuAction } from '../components/TreeItemMenu'
+import type { BookType } from '../api/types'
+
+const BOOK_TYPE_LABELS: Record<BookType, string> = {
+  general: 'Book',
+  novel: 'Novel',
+  journal: 'Journal',
+  documentation: 'Documentation',
+}
 
 export default function FolderPage() {
   const { folderId } = useParams()
@@ -35,6 +44,8 @@ export default function FolderPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
+  const writeToday = useWriteJournalToday(id ?? '')
+  const [journalError, setJournalError] = useState<string | null>(null)
 
   const [showSettings, setShowSettings] = useState(false)
   const [creating, setCreating] = useState<'folder' | 'chapter' | null>(null)
@@ -110,6 +121,25 @@ export default function FolderPage() {
     )
   }
 
+  function handleWriteToday() {
+    setJournalError(null)
+    writeToday.mutate(undefined, {
+      onSuccess: (result) => {
+        // entryTimeLabel is already formatted using the Book owner's
+        // journalTimeFormat preference (P1.1A) -- handed off verbatim so
+        // the Chapter page never needs to reformat it itself.
+        const params = new URLSearchParams({
+          journalEntry: result.entryRequestId,
+          journalEntryTimeLabel: result.entryTimeLabel,
+        })
+        navigate(`/chapters/${result.chapter.id}?${params.toString()}`)
+      },
+      onError: (err) => {
+        setJournalError(err instanceof ApiError ? err.message : "Couldn't create today's Journal entry.")
+      },
+    })
+  }
+
   function toggleSubfolderOpen(folderId: string, isOpen: boolean) {
     const current = settings?.closedFolderIds ?? []
     updateSettings.mutate({
@@ -137,13 +167,15 @@ export default function FolderPage() {
   ]
   if (trailingMenuActions.length > 0) trailingMenuActions[0] = { ...trailingMenuActions[0], separatorBefore: true }
 
+  const isJournal = isBook && book?.bookType === 'journal'
+
   return (
     <div className="folder-page">
       <header className="folder-page-header">
         <div className="folder-page-heading">
           <div className="folder-eyebrow">
             {isBook
-              ? 'Book'
+              ? BOOK_TYPE_LABELS[book?.bookType ?? 'general']
               : folder.parentAccessible
                 ? <Link to={`/folders/${folder.parentId}`}>&larr; Parent folder</Link>
                 : 'Folder'}
@@ -153,6 +185,17 @@ export default function FolderPage() {
           {folder.description && <p className="folder-description">{folder.description}</p>}
         </div>
         <div className="folder-page-actions" aria-label={`${isBook ? 'Book' : 'Folder'} actions`}>
+          {isJournal && canEditSettings && (
+            <button
+              type="button"
+              className="home-wizard-action"
+              onClick={handleWriteToday}
+              disabled={writeToday.isPending}
+              aria-busy={writeToday.isPending}
+            >
+              {writeToday.isPending ? 'Opening…' : 'Write today'}
+            </button>
+          )}
           <TreeItemMenu
             actions={[
               ...(canEditSettings
@@ -179,6 +222,12 @@ export default function FolderPage() {
           />
         </div>
       </header>
+
+      {journalError && (
+        <div className="settings-message error" role="alert">
+          {journalError}
+        </div>
+      )}
 
       {showSettings && (
         <FolderSettingsModal
