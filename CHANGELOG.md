@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+- Upgraded workspace to **Workspace Bootstrap Standard v1.0 (WBS 1.0)** at **Tier 2 (Standard)**:
+  - Added machine-readable workspace topology and command registry in `workspace-manifest.yaml`
+  - Added zero-to-development idempotent bootstrap script in `setup.sh`
+  - Added unified workspace management CLI `./cw` supporting lifecycle (`start`, `stop`, `restart`, `status`, `logs`), diagnostics (`doctor`, `info`), database lifecycle & backup triads (`db:backup`, `db:restore`, `db:reset`, `db:migrate`, `db:status`, `db:prune`), quality & build commands (`test`, `lint`, `build`, `clean`), doc validation (`docs:validate`), and administrative user/book management
+  - Added externalized persistence configuration to `~/.calwriter/` with secure file permissions (`0700` directories, `0600` backup dumps)
+  - Added full documentation hierarchy under `docs/` (Architecture, Database, API, Operations, Security, ADRs, Known Issues, Test Coverage) and automated link validator in `scripts/validate_docs.py`
+  - Added hierarchical AI agent governance and local-only execution boundary rules in `AGENTS.md`
+
 ## 0.21.1 - 2026-08-29 16:19 UTC
 - Added Journal date/time formatting preferences (Settings -> Journal): choose from eight date styles (e.g. "August 29, 2026", "2026-08-29", "29 Aug 2026") for newly generated Journal day-chapter names, and 12-hour or 24-hour for Write Today timestamps. Each dropdown shows the actual rendered example rather than an internal name
 - These preferences only affect entries created after you change them -- existing Journal chapter names and previously inserted timestamps are never rewritten

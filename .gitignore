@@ -2,3 +2,8 @@ data/
 __pycache__/
 *.pyc
 .env
+.pytest_cache/
+*.dump
+*.sha256
+frontend/dist/
+frontend/node_modules/

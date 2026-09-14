@@ -1,0 +1,114 @@
+# Workspace Manifest - Workspace Bootstrap Standard v1.0 (WBS 1.0)
+schema_version: "1.0.0"
+project:
+  name: "CalWriter"
+  slug: "calwriter"
+  tier: "standard"
+  version: "0.21.1"
+  description: "Multi-user novel and book writing application with rich text autosave, hierarchical chapters, export, search, and goal tracking."
+  primary_language: "python"
+  framework: "flask"
+  frontend_framework: "react"
+  database_engine: "postgresql"
+  orm: "sqlalchemy"
+  migration_tool: "alembic"
+
+repositories:
+  - name: "calwriter"
+    path: "."
+    role: "primary"
+    vcs: "git"
+
+services:
+  app:
+    name: "CalWriter Backend & App"
+    container_name: "calwriter-app-1"
+    host: "localhost"
+    port: 5000
+    protocol: "http"
+    required: true
+    probe:
+      type: "http"
+      url: "http://localhost:5000/healthz"
+      expected_status: 204
+      timeout_seconds: 5
+
+  db:
+    name: "PostgreSQL Database"
+    container_name: "calwriter-db-1"
+    host: "localhost"
+    port: 5432
+    protocol: "tcp"
+    required: true
+    probe:
+      type: "tcp"
+      host: "localhost"
+      port: 5432
+      timeout_seconds: 5
+
+  frontend:
+    name: "Vite Frontend Dev Server"
+    container_name: "calwriter-frontend-1"
+    host: "localhost"
+    port: 5173
+    protocol: "http"
+    required: false
+    probe:
+      type: "http"
+      url: "http://localhost:5173/"
+      expected_status: 200
+      timeout_seconds: 5
+
+  adminer:
+    name: "Adminer Database Browser (Dev Only)"
+    container_name: "calwriter-adminer-1"
+    host: "localhost"
+    port: 8080
+    protocol: "http"
+    required: false
+    probe:
+      type: "http"
+      url: "http://localhost:8080/"
+      expected_status: 200
+      timeout_seconds: 5
+
+external_paths:
+  base: "~/.calwriter"
+  backups_database: "~/.calwriter/backups/database"
+  backups_workspace: "~/.calwriter/backups/workspace"
+  logs_services: "~/.calwriter/logs/services"
+  logs_tasks: "~/.calwriter/logs/tasks"
+  state: "~/.calwriter/state"
+  cache: "~/.calwriter/cache"
+
+runtime_requirements:
+  docker: ">= 24.0.0"
+  docker_compose: ">= 2.20.0"
+  python: ">= 3.11"
+  node: ">= 20.0.0"
+  npm: ">= 10.0.0"
+
+network_exposure:
+  approved: false
+  reason: "Development services bind to loopback (127.0.0.1/localhost) for security."
+
+commands:
+  start: "./cw start"
+  stop: "./cw stop"
+  restart: "./cw restart"
+  status: "./cw status"
+  logs: "./cw logs"
+  doctor: "./cw doctor"
+  info: "./cw info"
+  test: "./cw test"
+  lint: "./cw lint"
+  build: "./cw build"
+  clean: "./cw clean"
+  "db:backup": "./cw db:backup"
+  "db:restore": "./cw db:restore"
+  "db:reset": "./cw db:reset"
+  "db:migrate": "./cw db:migrate"
+  "db:status": "./cw db:status"
+  "db:prune": "./cw db:prune"
+  "docs:validate": "./cw docs:validate"
+
