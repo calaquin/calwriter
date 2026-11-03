@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.22.0 - 2026-11-03 14:56 UTC
+- Fixed autosave failure when returning to an idle browser tab: configured Flask-WTF `WTF_CSRF_TIME_LIMIT = None` so CSRF tokens remain valid for the duration of the authenticated session instead of timing out after 1 hour
+- Added automatic CSRF recovery and retry in the frontend API client (`api/client.ts`), plus structured JSON error responses (`CSRFError`) from the backend
+- Added click-to-retry handler and button styling on the editor's "Could not save" status indicator so writers can manually re-trigger pending saves without refreshing the page
+
 ## 0.21.1 - 2026-08-29 16:19 UTC
 - Added Journal date/time formatting preferences (Settings -> Journal): choose from eight date styles (e.g. "August 29, 2026", "2026-08-29", "29 Aug 2026") for newly generated Journal day-chapter names, and 12-hour or 24-hour for Write Today timestamps. Each dropdown shows the actual rendered example rather than an internal name
 - These preferences only affect entries created after you change them -- existing Journal chapter names and previously inserted timestamps are never rewritten

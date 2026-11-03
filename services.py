@@ -21,7 +21,7 @@ from extensions import db
 from models import User, UserSettings, Folder, Chapter, ChapterVersion, ChapterWritingActivity, Goal, GoalType, GoalPeriodHistory
 from permissions import accessible_book_ids
 
-VERSION = "0.21.1"
+VERSION = "0.22.0"
 
 CHAPTER_VERSION_MIN_INTERVAL = datetime.timedelta(minutes=5)
 CHAPTER_VERSION_RETENTION = 50

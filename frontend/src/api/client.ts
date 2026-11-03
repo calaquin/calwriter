@@ -7,15 +7,40 @@ export class ApiError extends Error {
 }
 
 let csrfToken: string | null = null
+let refreshCsrfPromise: Promise<string | null> | null = null
 
 export function setCsrfToken(token: string | null) {
   csrfToken = token
+}
+
+async function refreshCsrfToken(): Promise<string | null> {
+  if (refreshCsrfPromise) {
+    return refreshCsrfPromise
+  }
+  refreshCsrfPromise = (async () => {
+    try {
+      const res = await fetch('/api/auth/me', { credentials: 'include' })
+      if (!res.ok) return null
+      const data = await res.json()
+      if (data && typeof data === 'object' && typeof data.csrfToken === 'string') {
+        csrfToken = data.csrfToken
+        return data.csrfToken
+      }
+      return null
+    } catch {
+      return null
+    } finally {
+      refreshCsrfPromise = null
+    }
+  })()
+  return refreshCsrfPromise
 }
 
 interface RequestOptions {
   method?: string
   body?: unknown
   isForm?: boolean
+  _isRetry?: boolean
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -48,6 +73,23 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   const data = contentType.includes('application/json') ? await res.json() : await res.text()
 
   if (!res.ok) {
+    const isCsrfError =
+      res.status === 400 &&
+      mutating &&
+      !options._isRetry &&
+      ((typeof data === 'object' &&
+        data !== null &&
+        (('code' in data && (data as { code?: unknown }).code === 'csrf_error') ||
+          ('error' in data && String((data as { error?: unknown }).error).toLowerCase().includes('csrf')))) ||
+        (typeof data === 'string' && data.toLowerCase().includes('csrf')))
+
+    if (isCsrfError) {
+      const freshToken = await refreshCsrfToken()
+      if (freshToken) {
+        return request<T>(path, { ...options, _isRetry: true })
+      }
+    }
+
     const message = typeof data === 'object' && data && 'error' in data ? String(data.error) : `Request failed (${res.status})`
     throw new ApiError(res.status, message)
   }

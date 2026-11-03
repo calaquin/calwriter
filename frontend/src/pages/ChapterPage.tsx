@@ -430,6 +430,17 @@ export default function ChapterPage() {
     )
   }
 
+  function handleRetrySave() {
+    setSaveStatus('saving')
+    update.mutate(
+      { contentHtml: pendingContentRef.current, expectedUpdatedAt: chapter?.updatedAt },
+      {
+        onSuccess: () => setSaveStatus('saved'),
+        onError: (err) => (isConflict(err) ? setHasConflict(true) : setSaveStatus('error')),
+      },
+    )
+  }
+
   function handleToggleComplete(completed: boolean) {
     update.mutate({ completed })
   }
@@ -625,9 +636,25 @@ export default function ChapterPage() {
               )}
             </span>
           )}
-          <span className={`save-status ${saveStatus}`}>
+          <span
+            className={`save-status ${saveStatus}`}
+            onClick={saveStatus === 'error' ? handleRetrySave : undefined}
+            role={saveStatus === 'error' ? 'button' : undefined}
+            tabIndex={saveStatus === 'error' ? 0 : undefined}
+            onKeyDown={
+              saveStatus === 'error'
+                ? (e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    handleRetrySave()
+                  }
+                }
+                : undefined
+            }
+            title={saveStatus === 'error' ? 'Click to retry saving' : undefined}
+          >
             <span className="save-status-dot" aria-hidden="true" />
-            {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'error' ? 'Could not save' : 'Saved'}
+            {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'error' ? 'Could not save (click to retry)' : 'Saved'}
           </span>
         </footer>
       </div>

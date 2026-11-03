@@ -5,6 +5,7 @@ from flask import Flask, request, jsonify, send_from_directory
 from werkzeug.security import generate_password_hash
 from werkzeug.utils import safe_join
 from flask_login import LoginManager, current_user
+from flask_wtf.csrf import CSRFError
 
 from extensions import db, csrf
 from models import User, UserSettings, Folder, ResourceShare, ShareRole
@@ -14,6 +15,10 @@ app = Flask(__name__)
 app.secret_key = os.environ['SECRET_KEY']
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = os.environ.get('SESSION_COOKIE_SECURE', 'true').lower() == 'true'
+# Keep CSRF tokens valid for the duration of the authenticated session instead
+# of expiring after Flask-WTF's default 1 hour (3600s), which caused autosave
+# failures when returning to an idle browser tab.
+app.config['WTF_CSRF_TIME_LIMIT'] = None
 csrf.init_app(app)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URL']
@@ -140,6 +145,11 @@ FRONTEND_DIST = os.path.join(os.path.dirname(__file__), 'frontend', 'dist')
 @app.route('/healthz')
 def healthz():
     return ('', 204)
+
+
+@app.errorhandler(CSRFError)
+def handle_csrf_error(e):
+    return jsonify({'error': e.description, 'code': 'csrf_error'}), 400
 
 
 PUBLIC_API_ENDPOINTS = {'api.api_login', 'api.api_version', 'api.api_get_invite', 'api.api_accept_invite'}
